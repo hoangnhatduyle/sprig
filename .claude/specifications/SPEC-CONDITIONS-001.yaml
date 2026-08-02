@@ -1,0 +1,68 @@
+id: SPEC-CONDITIONS-001
+version: 0.1.0
+kind: domain
+title: Manual Conditions Overrides & What-If Simulation (Phase 1.5)
+status: draft
+context_and_scope:
+  in_scope:
+    - "Real, persistent bed equipment (BedConditionOverride: SHADE_CLOTH, GROW_LIGHT, RAIN_COVER) that actually adjusts a bed's future real weather-response via a shared ConditionModifiers vocabulary, bounded to realistic intensity ranges so it cannot become a realism-breaking cheat code."
+    - "A non-committal what-if preview (runWhatIfProjection) that runs the SAME real growth-engine daily step forward a chosen number of simulated days, starting from each targeted planting's current real state, and returns the trajectory without ever writing to PlantingBiologyState/CellEnvironmentState/GridCell/GridCellEvent."
+    - "Per-bed scope for both modes, with explicit bed selection (one, several, or all) at override-creation or preview time."
+    - "A shared light/rain modifier vocabulary: lightMultiplier (expressed as an effective-cloud-cover adjustment) and rainMultiplier (precipitation reaching the soil, distinct from irrigation)."
+    - "A UI panel (ConditionsPanel) offering both an 'install real equipment' flow and a 'preview a what-if scenario' flow from the same bed selection."
+  out_of_scope:
+    - "Persisting what-if scenarios to SimulationRun or reusing its DRAFT/CONFIGURED/RUNNING FSM — that machinery serves a separate, not-yet-wired-to-any-UI feature (SPEC-VIEWER-00x's real/simulated time-of-day scrub). The preview here is cheap and deterministic enough to recompute on demand instead."
+    - "Temperature and wind modifiers — Phase 1.5 ships light and rain only, per the explicit scope agreed with the user; ConditionModifiers is designed to extend to more factors later without a rework."
+    - "Per-cell (as opposed to per-bed) override granularity."
+    - "3D equipment meshes (shade cloth mesh, grow-light glow, rain-cover panel) in the viewer — shipped in SPEC-SURFACE-001's BedEquipment.tsx, not in this spec's own scope."
+    - "A 'preview, then install for real' one-click bridge — both flows exist side by side in the same panel and share the same equipment presets, but confirming a preview does not yet auto-fill the install form."
+  external_dependencies: []
+  shared_schemas:
+    - "BedConditionOverride { bedId, kind: SHADE_CLOTH|GROW_LIGHT|RAIN_COVER, intensity, installedAt, removedAt } — append-only per bed; at most one active override of a given kind per bed, but different kinds stack."
+    - "ConditionModifiers { lightMultiplier, rainMultiplier } — the shared vocabulary both real overrides and the what-if preview resolve into before weather reaches the growth engine."
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-CONDITIONS-BOUNDED-REAL-INTENSITY
+    message: A real, persistent BedConditionOverride's intensity MUST be rejected outside its kind's documented bounds (bed-condition-override-service.ts's INTENSITY_BOUNDS); the what-if preview is explicitly exempt from this bound since nothing it computes is ever committed.
+    severity: medium
+  - id: NC-SPRIG-CONDITIONS-PREVIEW-NEVER-PERSISTS
+    message: runWhatIfProjection MUST NEVER write to PlantingBiologyState, CellEnvironmentState, GridCell, or GridCellEvent — mirrors NC-SPRIG-NO-OVERWRITE-JOURNAL from the existing SPEC-VIEWER what-if overlay.
+    severity: high
+  - id: NC-SPRIG-CONDITIONS-BOUNDED-PROJECTION
+    message: A single what-if preview call MUST NOT project more than MAX_PROJECTION_DAYS simulated days; a request for more MUST be silently capped, never rejected outright or left to run unbounded.
+    severity: medium
+  - id: NC-SPRIG-CONDITIONS-RAIN-NOT-IRRIGATION
+    message: rainMultiplier MUST only ever scale precipitation reaching the soil from weather; it MUST NOT be conflated with, or substitute for, manual/automatic irrigation's own separate water-bucket inflow term.
+    severity: low
+acceptance_criteria:
+  - id: AC-1
+    given: a bed with no equipment installed
+    when: a SHADE_CLOTH override is installed at a valid intensity
+    then: the next real growth catch-up for a planting on that bed computes its light-derived stress/energy from weather with reduced effective light, compared to an identical planting on a bed with no override
+    invariant: false
+  - id: AC-2
+    given: a bed that already has an active SHADE_CLOTH override
+    when: a second SHADE_CLOTH override is installed on the same bed
+    then: the first override's removedAt is set and only the new one is active — at most one active override of a given kind per bed at a time
+    invariant: true
+  - id: AC-3
+    given: a bed with an active SHADE_CLOTH override and a separately active RAIN_COVER override
+    when: growth catch-up resolves that bed's effective conditions
+    then: both modifiers are combined (stacked), not just the most recently installed one
+    invariant: false
+  - id: AC-4
+    given: an install request with an intensity above a kind's documented maximum
+    then: it is rejected with InvalidConditionIntensityError, never silently clamped or accepted
+    invariant: true
+  - id: AC-5
+    given: a real planting with a known current PlantingBiologyState
+    when: runWhatIfProjection is called for its bed with a light/rain override
+    then: the real PlantingBiologyState/CellEnvironmentState/GridCell rows for that planting are byte-for-byte unchanged after the call returns
+    invariant: true
+  - id: AC-6
+    given: a what-if preview requested for more than MAX_PROJECTION_DAYS
+    then: the projection silently caps at MAX_PROJECTION_DAYS days rather than erroring or running unbounded
+    invariant: true
+depends_on:
+  - SPEC-GROWTH-001
+constitution_rules: []

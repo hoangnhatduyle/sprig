@@ -1,0 +1,53 @@
+spec_id: SPEC-PLANTUI-001
+generated_at: 2026-08-01T00:00:00.000Z
+cases:
+  - id: T-SPEC-PLANTUI-001-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-PLANTUI-001#AC-1
+    assertion: given the garden view with an EMPTY cell, when the user clicks the cell and selects a plant from the picker, then assignInventoryPlant is called (mode 'replace', amount one unit) with that cell's exact coordinates and the selected plant id, and the cell's display updates to show the new plant
+    invariant: false
+  - id: T-SPEC-PLANTUI-001-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-PLANTUI-001#AC-2
+    assertion: given a cell with an active plant, when the user clicks it and selects a different plant via the replace action, then assignInventoryPlant is called (mode 'replace') and the cell's display updates to the new plant, matching GRID's existing 'new plant = new cycle' semantics
+    invariant: false
+  - id: T-SPEC-PLANTUI-001-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-PLANTUI-001#AC-3
+    assertion: given a cell with an active plant, when the user chooses 'add companion' and selects a second plant, then assignInventoryPlant is called (mode 'companion') and the cell's display shows both plants simultaneously active
+    invariant: false
+  - id: T-SPEC-PLANTUI-001-AC-AC_4
+    kind: acceptance
+    traces_to: SPEC-PLANTUI-001#AC-4
+    assertion: given a HARVESTED cell, when the user clicks it, then the UI offers only clear/remove actions, never a direct 'replace plant' action, so GRID's HarvestedCellError is never triggered by normal use
+    invariant: true
+  - id: T-SPEC-PLANTUI-001-AC-AC_5
+    kind: acceptance
+    traces_to: SPEC-PLANTUI-001#AC-5
+    assertion: given a cell with an active plant, when the user clicks that plant's Remove action, then removePlanting is called with that cell's exact coordinates and the plant's id, and the cell's display returns to unplanted (or, for a companion, to showing only the remaining plant(s))
+    invariant: false
+  - id: T-SPEC-PLANTUI-001-AC-AC_6
+    kind: acceptance
+    traces_to: SPEC-PLANTUI-001#AC-6
+    assertion: given a plant option with zero seed stock remaining, when the user selects it from the picker to assign or add as a companion, then assignInventoryPlant is never called and the UI shows a clear 'out of stock' message instead
+    invariant: false
+  - id: T-SPEC-PLANTUI-001-FORBID-Cell_picker_interaction_IDLE_PICKER_OPEN
+    kind: forbidden-transition
+    traces_to: SPEC-PLANTUI-001#Cell picker interaction:IDLE->PICKER_OPEN
+    assertion: "[Cell picker interaction] transition IDLE -> PICKER_OPEN MUST be rejected (The picker must not open without a cell being selected first, to avoid an ambiguous 'which cell' assignment.)"
+    invariant: true
+  - id: T-SPEC-PLANTUI-001-NC-NC_SPRIG_PLANTUI_NO_STALE_CELL_REF
+    kind: negative-constraint
+    traces_to: SPEC-PLANTUI-001#NC-SPRIG-PLANTUI-NO-STALE-CELL-REF
+    assertion: The UI MUST NOT call assignInventoryPlant/removePlanting with a bedId/column/row that no longer corresponds to the cell the user actually clicked (e.g. after a re-render or list reorder) — the picker's target cell reference must stay bound to the specific clicked cell.
+    invariant: true
+  - id: T-SPEC-PLANTUI-001-NC-NC_SPRIG_PLANTUI_NO_OUT_OF_STOCK_ASSIGN
+    kind: negative-constraint
+    traces_to: SPEC-PLANTUI-001#NC-SPRIG-PLANTUI-NO-OUT-OF-STOCK-ASSIGN
+    assertion: The UI MUST NOT call assignInventoryPlant for a plant with zero seed stock remaining; it must block the action locally with a clear message instead of relying on INVENTORY's InventoryValidationError to reject it.
+    invariant: true
+  - id: T-SPEC-PLANTUI-001-NC-NC_SPRIG_PLANTUI_NO_REMOVE_ON_HARVESTED
+    kind: negative-constraint
+    traces_to: SPEC-PLANTUI-001#NC-SPRIG-PLANTUI-NO-REMOVE-ON-HARVESTED
+    assertion: The UI MUST NOT offer the Remove-plant action on a HARVESTED cell; that cell's clear/remove lifecycle actions remain the separate, currently-stubbed HarvestedActions concern.
+    invariant: true

@@ -1,0 +1,694 @@
+// Prisma schema for Sprig — maps 1:1 onto the shared_schemas sections of
+// SPEC-GRID-001, SPEC-IRRIGATION-001, SPEC-LIGHT-001, SPEC-VIEWER-001.
+//
+// Event tables (GridCellEvent, RainBarrelEvent, IrrigationRun) are append-only
+// by convention (create-only repository methods, enforced in the domain layer,
+// not the schema) — they are the structural backing for NC-SPRIG-NO-OVERWRITE-JOURNAL,
+// NC-SPRIG-NO-SILENT-PLANT-CHANGE, and NC-SPRIG-BARREL-CAPACITY-CAP.
+//
+// ViewerState and DayNightCycle are NOT modeled here: both are ephemeral,
+// computed-per-session values (Zustand client state / suncalc output), not
+// durable domain data.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Postgres enforces FK constraints natively (unlike the former SQLite +
+  // better-sqlite3 setup, which never issued `PRAGMA foreign_keys = ON`), so
+  // the default relationMode ("foreignKeys") now genuinely protects against
+  // dangling foreign keys at the database level. The domain service layer
+  // (src/domain/grid/grid-cell-service.ts) still enforces uniqueness/at-most-
+  // one-active-row invariants that this driver's schema can't express
+  // (see the per-model comments below), so it remains the source of truth
+  // for those, not just FK integrity.
+}
+
+// --- SPEC-GRID-001 ---------------------------------------------------------
+
+enum CompassPosition {
+  SOUTH
+  NORTH
+}
+
+enum BaselineLight {
+  PARTIAL_SHADE
+  FULL_SUN
+}
+
+enum CellStatus {
+  EMPTY
+  PLANTED
+  GERMINATED
+  GROWING
+  HARVESTED
+  REMOVED
+}
+
+// REAL baseline per-cell water state (SPEC-IRRIGATION-001). Updated only by
+// the automatic daily irrigation cycle — SIMULATION-mode manual watering is
+// an ephemeral in-memory overlay (src/domain/irrigation) that never writes
+// here, per NC-SPRIG-MANUAL-WATER-NOT-A-SUBSTITUTE. No decay model: once
+// WET, a cell stays WET until the next REAL-baseline-writing operation.
+enum CellWaterState {
+  DRY
+  WET
+}
+
+model Bed {
+  id                  String                 @id @default(cuid())
+  name                String
+  widthFt             Int                    @default(4)
+  lengthFt            Int                    @default(8)
+  gridCols            Int
+  gridRows            Int
+  compassPosition     CompassPosition
+  cells               GridCell[]
+  renovations         BedRenovation[]
+  irrigationSystems   IrrigationSystem[]     @relation("IrrigationSystemBeds")
+  soilProfile         SoilProfile?
+  conditionOverrides  BedConditionOverride[]
+  pestPopulations     PestPopulation[]
+  predatorPopulations PredatorPopulation[]
+  careActionEvents    CareActionEvent[]
+  journalNotes        JournalNote[]
+
+  @@unique([name])
+}
+
+model Plant {
+  id                  String          @id @default(cuid())
+  commonName          String
+  species             String?
+  waterNeed           String?
+  lightNeed           String?
+  isCompanionPlanting Boolean         @default(false)
+  notes               String?
+  seedQuantity        Float           @default(0)
+  seedUnit            String          @default("seed")
+  imageFilename       String?
+  imageMimeType       String?
+  archivedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  cellPlantings       CellPlanting[]
+  gridCellEvents      GridCellEvent[]
+  harvestRecords      HarvestRecord[]
+  speciesProfile      SpeciesProfile? @relation(fields: [speciesProfileId], references: [id], onDelete: SetNull)
+  speciesProfileId    String?
+
+  @@index([archivedAt])
+  @@index([speciesProfileId])
+}
+
+model GridCell {
+  id               String                @id @default(cuid())
+  bed              Bed                   @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId            String
+  column           Int
+  row              Int
+  status           CellStatus            @default(EMPTY)
+  baselineLight    BaselineLight
+  plantedAt        DateTime?
+  waterState       CellWaterState        @default(DRY)
+  cellPlantings    CellPlanting[]
+  events           GridCellEvent[]
+  environmentState CellEnvironmentState?
+  careActionEvents CareActionEvent[]
+  journalNotes     JournalNote[]
+
+  @@unique([bedId, column, row])
+  @@index([bedId])
+}
+
+// Current + historical plant assignments for a cell — a list, because
+// companion planting means more than one plant can occupy the same cell.
+model CellPlanting {
+  id                String                @id @default(cuid())
+  cell              GridCell              @relation(fields: [cellId], references: [id], onDelete: Restrict)
+  cellId            String
+  plant             Plant                 @relation(fields: [plantId], references: [id], onDelete: Restrict)
+  plantId           String
+  plantedAt         DateTime              @default(now())
+  removedAt         DateTime?
+  seedQuantityUsed  Float?
+  seedUnit          String?
+  harvestRecords    HarvestRecord[]
+  biologyState      PlantingBiologyState?
+  diseaseInfections DiseaseInfection[]
+
+  @@index([cellId])
+  @@index([plantId])
+}
+
+// A planting can be picked repeatedly. Recording yield never completes the
+// planting lifecycle; the separate HARVESTED transition means "finished".
+model HarvestRecord {
+  id             String       @id @default(cuid())
+  cellPlanting   CellPlanting @relation(fields: [cellPlantingId], references: [id], onDelete: Restrict)
+  cellPlantingId String
+  plant          Plant        @relation(fields: [plantId], references: [id], onDelete: Restrict)
+  plantId        String
+  amount         Float
+  unit           String
+  harvestedAt    DateTime     @default(now())
+  notes          String?
+
+  @@index([cellPlantingId, harvestedAt])
+  @@index([plantId, harvestedAt])
+}
+
+// Append-only dated event log backing NC-SPRIG-NO-SILENT-PLANT-CHANGE and
+// NC-SPRIG-NO-OVERWRITE-JOURNAL. Never updated or deleted, only inserted.
+// onDelete: Restrict on `cell`/`plant` means a GridCell or Plant with any
+// journal history cannot be deleted out from under it.
+model GridCellEvent {
+  id         String     @id @default(cuid())
+  cell       GridCell   @relation(fields: [cellId], references: [id], onDelete: Restrict)
+  cellId     String
+  eventType  CellStatus
+  plant      Plant?     @relation(fields: [plantId], references: [id], onDelete: Restrict)
+  plantId    String?
+  occurredAt DateTime   @default(now())
+  note       String?
+
+  @@index([cellId])
+  @@index([plantId])
+}
+
+// Durable audit record backing NC-SPRIG-GRID-IMMUTABLE-GEOMETRY: a bed's
+// gridCols/gridRows may only change alongside one of these dated records.
+model BedRenovation {
+  id           String   @id @default(cuid())
+  bed          Bed      @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId        String
+  note         String
+  occurredAt   DateTime
+  previousCols Int
+  previousRows Int
+  newCols      Int
+  newRows      Int
+
+  @@index([bedId])
+}
+
+// --- SPEC-IRRIGATION-001 ----------------------------------------------------
+
+enum RainBarrelStatus {
+  EMPTY
+  PARTIAL
+  FULL
+  OVERFLOWING
+}
+
+enum RainBarrelEventType {
+  ADD_WATER
+  REACH_CAPACITY
+  OVERFLOW
+  RAIN_STOP
+  DRAW_WATER
+}
+
+model RainBarrel {
+  id              String            @id @default(cuid())
+  capacityGallons Float             @default(50)
+  currentGallons  Float             @default(0)
+  linkedDownspout String?
+  status          RainBarrelStatus  @default(EMPTY)
+  events          RainBarrelEvent[]
+}
+
+// Append-only — the structural backing for NC-SPRIG-BARREL-CAPACITY-CAP:
+// an OVERFLOW row is required whenever capacity would be exceeded, never a
+// silent clamp. onDelete: Restrict mirrors GridCellEvent's protection of
+// journal integrity (see the grid section above and the datasource note on
+// why this is enforced in the service layer too, not just here).
+model RainBarrelEvent {
+  id            String              @id @default(cuid())
+  barrel        RainBarrel          @relation(fields: [barrelId], references: [id], onDelete: Restrict)
+  barrelId      String
+  eventType     RainBarrelEventType
+  amountGallons Float
+  occurredAt    DateTime            @default(now())
+
+  @@index([barrelId])
+}
+
+enum IrrigationSystemStatus {
+  IDLE
+  RUNNING
+}
+
+// bed_ids from SPEC-IRRIGATION-001's shared_schemas is modeled as an
+// explicit many-to-many relation (not a bare array column) so the "waters
+// all cells in both beds equally" behavior can be scoped by an actual query
+// instead of an unscoped, all-cells-in-the-database update.
+model IrrigationSystem {
+  id              String                 @id @default(cuid())
+  dailyStartTime  String                 @default("08:00")
+  durationMinutes Int                    @default(10)
+  waterSource     String                 @default("SPIGOT_ASSUMED")
+  status          IrrigationSystemStatus @default(IDLE)
+  beds            Bed[]                  @relation("IrrigationSystemBeds")
+  runs            IrrigationRun[]
+}
+
+// Append-only daily-cycle log backing NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL /
+// AC-11 / AC-12 — one row per 08:00-10min cycle, auto-created, never edited.
+model IrrigationRun {
+  id        String           @id @default(cuid())
+  system    IrrigationSystem @relation(fields: [systemId], references: [id], onDelete: Restrict)
+  systemId  String
+  startedAt DateTime
+  endedAt   DateTime?
+
+  @@index([systemId, startedAt])
+}
+
+// --- SPEC-LIGHT-001 ----------------------------------------------------------
+
+// Singleton — the garden's real-world position, used to compute sunrise/sunset
+// via suncalc. Configuration, not user-facing garden data.
+model GardenLocation {
+  id        String @id @default(cuid())
+  latitude  Float
+  longitude Float
+}
+
+enum SolarLightStatus {
+  CHARGING
+  READY
+  ILLUMINATED
+  DEPLETED
+}
+
+model SolarLight {
+  id          String           @id @default(cuid())
+  bedId       String?
+  chargeLevel Float            @default(0)
+  status      SolarLightStatus @default(CHARGING)
+}
+
+// --- SPEC-VIEWER-001 ----------------------------------------------------------
+
+enum SimulationRunStatus {
+  DRAFT
+  CONFIGURED
+  RUNNING
+  PAUSED
+  COMPLETED
+}
+
+model SimulationRun {
+  id            String              @id @default(cuid())
+  status        SimulationRunStatus @default(DRAFT)
+  waterInput    String? // JSON blob: { cellId: amount, ... }
+  simulatedTime DateTime?
+  affectedCells String? // JSON array of GridCell ids
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+}
+
+// --- SPEC-GROWTH-001 ---------------------------------------------------------
+//
+// Real, persisted growth state (species config, sim clock, weather, soil,
+// biomass). Distinct from SimulationRun above, which is an ephemeral
+// SPEC-VIEWER-00x what-if overlay that never writes here — see
+// src/domain/growth/, src/domain/weather/, src/domain/soil/.
+
+enum GrowthHabit {
+  UPRIGHT_BUSH
+  VINING
+  ROSETTE_LEAFY
+  ROOT_CROP
+}
+
+// SELF/WIND-pollinated species never gate flower->fruit conversion on
+// pollinator activity (growth-engine-service.ts treats them as always
+// fully pollinated); INSECT-dependent species scale fruit-set by the
+// ecology domain's computed pollinatorActivity — see the architecture
+// doc's §11 and SPEC-GROWTH-002.
+enum PollinationDependency {
+  SELF
+  WIND
+  INSECT
+}
+
+enum PhenologyStage {
+  GERMINATING
+  VEGETATIVE
+  FLOWERING
+  FRUITING
+  MATURE
+  SENESCENT
+  DEAD
+}
+
+enum WeatherSource {
+  PROCEDURAL
+  REAL_API
+}
+
+// Data-driven species config: a new species should only require a new row
+// here, never new growth-engine code. `key` is the stable lookup used by
+// growth-engine-service.ts and the procedural plant visual (Plant.tsx);
+// `plants` lets multiple free-text Plant catalog entries (e.g. two tomato
+// varieties) share one profile. Exactly one row should have
+// isFallbackDefault = true — the archetype an unrecognized species falls
+// back to (enforced in code, not the schema, per this driver's FK/uniqueness
+// limitations already documented above).
+model SpeciesProfile {
+  id                      String                @id @default(cuid())
+  key                     String                @unique
+  displayName             String
+  growthHabit             GrowthHabit
+  baseTempC               Float // Growing Degree Day base temperature
+  gddToGerminate          Float
+  gddToVegetative         Float
+  gddToFlowering          Float
+  gddToFruiting           Float
+  gddToMaturity           Float
+  heatStressThresholdC    Float
+  coldStressThresholdC    Float
+  droughtComfortFraction  Float                 @default(0.5) // soil-moisture fraction below which drought stress begins
+  matureHeightCm          Float
+  canopyWidthCm           Float
+  primaryColor            String // hex, procedural plant material color
+  isFallbackDefault       Boolean               @default(false)
+  // --- Phase 2 (SPEC-GROWTH-002) ---
+  lightNeedFraction       Float                 @default(0.6) // 0..1; feeds the shade stress dial against GridCell.baselineLight
+  baseNutrientDemand      Float                 @default(1) // overall N/P/K/Ca hunger scalar; stage-shape is shared (NUTRIENT_DEMAND_BY_STAGE), only this magnitude differs per species
+  windLodgingThresholdKph Float                 @default(45)
+  pollinationDependency   PollinationDependency @default(SELF)
+  // --- Phase 3 (SPEC-GROWTH-003) ---
+  // 0..1; multiplies P(infect) as (1 - resistanceTrait) in
+  // src/domain/disease/disease-service.ts — a per-species scalar, not a
+  // per-disease one, per the architecture doc's §16.
+  diseaseResistanceTrait  Float                 @default(0)
+  plants                  Plant[]
+
+  @@index([isFallbackDefault])
+}
+
+// Append-only clock breakpoints: the current simulated time is ALWAYS
+// derived — simAnchorAt + (now - realAnchorAt) * rate — from the most recent
+// row, never advanced by a background process. A new row is inserted
+// whenever the rate changes (pause = rate 0), never mutated, so past
+// sim-time math stays reconstructable.
+model SimClockEpoch {
+  id           String   @id @default(cuid())
+  realAnchorAt DateTime
+  simAnchorAt  DateTime
+  rate         Float // simulated seconds per real second
+  createdAt    DateTime @default(now())
+
+  @@index([realAnchorAt])
+}
+
+// Append-only marker of each "Start New Season" reset. The current season's
+// start is the row with the max startedAt; older rows let future season-aware
+// views (e.g. SeasonRecapPanel) anchor a default date range without needing
+// a seasonId FK sprawled across every seasonal table.
+model SeasonBoundary {
+  id        String   @id @default(cuid())
+  startedAt DateTime @default(now())
+  note      String?
+
+  @@index([startedAt])
+}
+
+// Cached/generated daily weather. One row per simulated calendar day —
+// regenerating or refetching an existing date never happens, which is what
+// makes the growth engine's catch-up step deterministic and cheap to
+// replay. `source` records how this specific day was produced; switching
+// WeatherSource going forward never rewrites past rows. Single-garden scope
+// (see GardenLocation's own singleton-row precedent), so `date` alone is the
+// unique key — no separate location column.
+model WeatherDay {
+  id              String        @id @default(cuid())
+  date            DateTime // UTC midnight of the simulated calendar day
+  tempHighC       Float
+  tempLowC        Float
+  precipitationMm Float
+  cloudCoverPct   Float
+  humidityPct     Float
+  windSpeedKph    Float
+  condition       String
+  source          WeatherSource
+  createdAt       DateTime      @default(now())
+
+  @@unique([date])
+}
+
+// Per-bed soil texture — one row per Bed since a raised bed is normally a
+// uniform fill. fieldCapacityFraction/wiltingPointFraction are derived from
+// sand/silt/clay at creation time and stored (not recomputed on every read)
+// because they're pure constants for a given texture, read every simulated
+// day by the water-bucket step.
+model SoilProfile {
+  id                    String @id @default(cuid())
+  bed                   Bed    @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId                 String @unique
+  sandPct               Float  @default(40)
+  siltPct               Float  @default(40)
+  clayPct               Float  @default(20)
+  fieldCapacityFraction Float  @default(0.35)
+  wiltingPointFraction  Float  @default(0.12)
+}
+
+// Latest-computed per-cell soil state. Path-dependent (recomputing it from
+// scratch would mean replaying every simulated day since the cell was first
+// planted), so it is persisted and advanced incrementally by the daily
+// catch-up step rather than derived fresh on every read.
+// soilMoistureFraction is 0 at the wilting point, 1 at field capacity (can
+// briefly exceed 1 before same-day drainage clamps it back).
+// --- Phase 2 additions (SPEC-GROWTH-002) ---
+// Nutrient pools follow soilMoistureFraction's own convention: 0..1
+// fractions of a nominal per-cell capacity, not absolute mass — a
+// visualization/stress-signal tool needs relative sufficiency, not lab
+// units. residueOrganicMatterPool is the shared "not-yet-decomposed
+// organic input" pool that mulch debris, compost, and organic fertilizer
+// all feed (src/domain/soil/nutrient-service.ts's decomposition step is
+// what converts it into the N/P/K pools over time). daysNearSaturation
+// is a duration counter, not an instant reading — see the overwatering
+// stress dial in src/domain/growth/stress-service.ts for why duration
+// (not just current moisture) is what actually matters.
+model CellEnvironmentState {
+  id                         String   @id @default(cuid())
+  cell                       GridCell @relation(fields: [cellId], references: [id], onDelete: Restrict)
+  cellId                     String   @unique
+  soilMoistureFraction       Float    @default(0.5)
+  soilTempC                  Float    @default(15)
+  nitrogenPoolFraction       Float    @default(0.6)
+  phosphorusPoolFraction     Float    @default(0.6)
+  potassiumPoolFraction      Float    @default(0.6)
+  calciumPoolFraction        Float    @default(0.6)
+  micronutrientIndexFraction Float    @default(0.6)
+  residueOrganicMatterPool   Float    @default(0)
+  mulchDepthMm               Float    @default(0)
+  daysNearSaturation         Float    @default(0)
+  // --- Phase 3 (SPEC-GROWTH-003) --- see weed-pressure-service.ts: grows
+  // on bare, unmulched soil, reduced by mulch depth and the weeding action.
+  weedPressureFraction       Float    @default(0)
+  updatedThroughDate         DateTime @default(now())
+}
+
+// The growth engine's core persisted state — one row per CellPlanting,
+// advanced by the daily step in src/domain/growth/growth-engine-service.ts.
+// Biomass pools are fractions of the species' mature reference (0..1), not
+// absolute grams: a visualization/yield-estimation tool needs relative
+// proportions, not lab-accurate mass. `updatedThroughDate` is what lets the
+// catch-up step skip plantings that are already caught up instead of
+// replaying their whole history on every read.
+model PlantingBiologyState {
+  id                 String         @id @default(cuid())
+  cellPlanting       CellPlanting   @relation(fields: [cellPlantingId], references: [id], onDelete: Restrict)
+  cellPlantingId     String         @unique
+  accumulatedGdd     Float          @default(0)
+  phenologyStage     PhenologyStage @default(GERMINATING)
+  leafFraction       Float          @default(0.05)
+  stemFraction       Float          @default(0.05)
+  rootFraction       Float          @default(0.1)
+  flowerFraction     Float          @default(0)
+  fruitFraction      Float          @default(0)
+  storedReserves     Float          @default(0.2)
+  waterContentIndex  Float          @default(1)
+  cumulativeStress   Float          @default(0)
+  // Whichever of the 8 stress-service.ts dials was largest on the last
+  // simulated day, but only set once it's actually the plant's real
+  // problem (above CellPicker's display threshold) — null otherwise. A
+  // small persisted read-model convenience so the UI never needs to
+  // re-fetch that day's weather just to explain "why is this struggling".
+  dominantStressDial String?
+  updatedThroughDate DateTime       @default(now())
+}
+
+// --- SPEC-CONDITIONS-001 (Phase 1.5) ----------------------------------------
+//
+// Manual conditions overrides: real, persistent "equipment" that actually
+// changes a bed's future real growth, and an ephemeral what-if preview that
+// never does. Both share the ConditionModifiers vocabulary
+// (src/domain/conditions/condition-modifiers.ts). See the architecture
+// doc's §19. The what-if preview is intentionally NOT modeled here — it's
+// computed on demand from CURRENT state and discarded, never persisted
+// (src/domain/conditions/whatif-projection-service.ts).
+
+enum ConditionOverrideKind {
+  SHADE_CLOTH
+  GROW_LIGHT
+  RAIN_COVER
+}
+
+// Real equipment installed on a bed, actually affecting its future growth —
+// distinct from the ephemeral what-if preview. Append-only via
+// installedAt/removedAt (mirrors CellPlanting's own pattern) rather than
+// deleted, so a bed's equipment history stays reconstructable. Multiple
+// different kinds can be simultaneously active on one bed (shade cloth AND
+// a rain cover together); at most one of the SAME kind is active at a time
+// (enforced in bed-condition-override-service.ts, not the schema, per this
+// driver's already-documented FK/uniqueness limitations).
+model BedConditionOverride {
+  id          String                @id @default(cuid())
+  bed         Bed                   @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId       String
+  kind        ConditionOverrideKind
+  intensity   Float
+  installedAt DateTime              @default(now())
+  removedAt   DateTime?
+
+  @@index([bedId, removedAt])
+}
+
+// --- SPEC-GROWTH-003 (Phase 3) ----------------------------------------------
+//
+// Disease infection, pest/predator population, and weed-pressure state — see
+// src/domain/disease/, src/domain/pests/, src/domain/soil/weed-pressure-service.ts
+// and the architecture doc's §9/§10/§12.
+
+// One row per infection EPISODE, mirroring CellPlanting's own
+// plantedAt/removedAt pattern rather than a single mutable "current disease"
+// field — an episode's full lifetime (when it started, how it progressed,
+// whether/when it resolved) stays reconstructable. At most one row per
+// cellPlantingId may have resolvedAt === null at a time (enforced in
+// disease-service.ts, not the schema, per this driver's already-documented
+// FK/uniqueness limitations) — a simplification from the architecture doc's
+// "not per-spore simulation" cheapness stance: one dominant disease at a
+// time per planting, not a full multi-infection model.
+model DiseaseInfection {
+  id                 String       @id @default(cuid())
+  cellPlanting       CellPlanting @relation(fields: [cellPlantingId], references: [id], onDelete: Restrict)
+  cellPlantingId     String
+  diseaseKey         String
+  severity           Float        @default(0)
+  startedAt          DateTime     @default(now())
+  resolvedAt         DateTime?
+  updatedThroughDate DateTime     @default(now())
+
+  @@index([cellPlantingId, resolvedAt])
+}
+
+// Current population per (bed, pest species) — updated in place, not
+// append-only: population dynamics (§10) are a continuous scalar, not a
+// discrete event log, so there is nothing worth preserving history for
+// beyond "what is it now." Bed-scoped, not per-cell, per the architecture
+// doc's "population-based per bed, not individual agents."
+model PestPopulation {
+  id                 String   @id @default(cuid())
+  bed                Bed      @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId              String
+  pestKey            String
+  population         Float    @default(0)
+  updatedThroughDate DateTime @default(now())
+
+  @@unique([bedId, pestKey])
+}
+
+// Mirrors PestPopulation for the Lotka-Volterra predator side (§10) — a
+// separate table, not a signed population on the same row, since a bed can
+// have predators present with zero of a given pest and vice versa.
+model PredatorPopulation {
+  id                 String   @id @default(cuid())
+  bed                Bed      @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId              String
+  predatorKey        String
+  population         Float    @default(0)
+  updatedThroughDate DateTime @default(now())
+
+  @@unique([bedId, predatorKey])
+}
+
+// --- SPEC-JOURNAL-001 --------------------------------------------------------
+//
+// Surfaces the garden's real activity history to the UI. GridCellEvent,
+// HarvestRecord, BedConditionOverride, BedRenovation, and DiseaseInfection
+// were already durable/append-only (see their own comments above); the two
+// models below close the remaining gap — care actions (mulch/compost/
+// fertilizer/weeding/fungicide/pesticide/predator-release) previously only
+// mutated CellEnvironmentState/DiseaseInfection/PestPopulation/
+// PredatorPopulation in place with no history, and freeform user notes had
+// no home at all. See src/domain/journal/journal-service.ts, which merges
+// all of the above into one chronological read model.
+
+enum CareActionType {
+  MULCH
+  COMPOST
+  FERTILIZER
+  WEEDING
+  FUNGICIDE
+  PESTICIDE
+  PREDATOR_RELEASE
+}
+
+// Append-only durable record of every human care action, written alongside
+// (never instead of) the existing in-place state mutation each action
+// service already performs — CellEnvironmentState/DiseaseInfection/
+// PestPopulation/PredatorPopulation remain the "current state" read model;
+// this is purely the "what happened and when" journal, backing
+// NC-SPRIG-JOURNAL-CARE-APPEND-ONLY. cellId is null for the two bed-scoped
+// actions (PESTICIDE, PREDATOR_RELEASE), mirroring PestPopulation/
+// PredatorPopulation's own bed-only granularity. `detail` is a JSON blob
+// whose shape varies per actionType (depthMm | amount | {kind,n,p,k} |
+// {pestKey,broadSpectrum} | {predatorKey,amount}) — same "JSON blob in a
+// String column" convention as SimulationRun.waterInput, appropriate here
+// since this is a display-only log, never queried by its internal fields.
+model CareActionEvent {
+  id         String         @id @default(cuid())
+  bed        Bed            @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId      String
+  cell       GridCell?      @relation(fields: [cellId], references: [id], onDelete: Restrict)
+  cellId     String?
+  actionType CareActionType
+  occurredAt DateTime       @default(now())
+  detail     String?
+
+  @@index([bedId, occurredAt])
+  @@index([cellId, occurredAt])
+}
+
+// User-authored freeform note, optionally with one attached photo and
+// optionally scoped to a bed and/or specific cell — distinct from
+// CareActionEvent (structured, system-recorded) and GridCellEvent
+// (lifecycle) in that this is a human observation, not an action outcome.
+// Append-only per NC-SPRIG-JOURNAL-NOTE-APPEND-ONLY: a correction is a new
+// row, never an UPDATE, so nothing already written is ever silently
+// changed. At least one of body/photoFilename must be set — enforced in
+// journal-note-service.ts, not the schema, per this driver's already-
+// documented FK/uniqueness limitations (see datasource note above).
+model JournalNote {
+  id            String    @id @default(cuid())
+  bed           Bed?      @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  bedId         String?
+  cell          GridCell? @relation(fields: [cellId], references: [id], onDelete: Restrict)
+  cellId        String?
+  body          String?
+  photoFilename String?
+  photoMimeType String?
+  occurredAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  @@index([bedId, occurredAt])
+  @@index([cellId, occurredAt])
+  @@index([occurredAt])
+}

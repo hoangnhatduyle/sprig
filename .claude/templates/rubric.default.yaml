@@ -1,0 +1,87 @@
+# Harness OS — quality-evaluation rubric (the `evaluate_quality` gate).
+#
+# Read by src/engines/evaluation.ts. The ECC gan-evaluator agent judges the work against
+# these criteria (navigating/screenshotting via the Playwright MCP, "as a human user")
+# and reports a 1-5 score per criterion; Harness OS aggregates and records the gate result.
+#
+# Calibrated from Anthropic's long-running-agent harness guidance. Copy this to
+# `.claude/templates/rubric.yaml` in a project to override it; or override per artifact
+# kind under `kinds:` below. Scores are 1-5; `threshold` is the weighted pass bar.
+
+threshold: 4
+
+criteria:
+  - id: design-quality
+    label: Design quality
+    weight: 1
+    description: Coherent aesthetic identity across colors, typography, layout, and spacing.
+    anchors:
+      "1": Incoherent or default; no identity.
+      "3": Acceptable but generic.
+      "5": Museum-quality, intentional, distinctive.
+  - id: originality
+    label: Originality
+    weight: 1
+    description: Custom decisions over telltale AI generation (e.g. purple gradients over white cards).
+    anchors:
+      "1": Obvious template / AI defaults.
+      "3": Some custom decisions.
+      "5": Clearly bespoke and considered.
+  - id: craft
+    label: Craft
+    weight: 1
+    description: Technical execution — hierarchy, spacing, contrast, alignment, states.
+    anchors:
+      "1": Sloppy; broken hierarchy or states.
+      "3": Competent.
+      "5": Precise, polished, believable in a real product.
+  - id: functionality
+    label: Functionality
+    weight: 1
+    description: Task completion and usability — features actually work end to end.
+    anchors:
+      "1": Display-only or broken.
+      "3": Works with rough edges.
+      "5": Complete and usable.
+
+# Per-kind overrides. A `kinds.<kind>` block replaces threshold/criteria for that kind.
+# `evaluate_quality` selects the kind from its `kind` argument (default: "default").
+kinds:
+  backend:
+    threshold: 4
+    criteria:
+      - id: correctness
+        label: Correctness
+        weight: 2
+        description: Behavior matches the spec's acceptance criteria and invariants.
+      - id: robustness
+        label: Robustness
+        weight: 1
+        description: Error handling, input validation, and failure modes are explicit.
+      - id: craft
+        label: Craft
+        weight: 1
+        description: Readable, cohesive, idiomatic; small focused functions/files.
+      - id: functionality
+        label: Functionality
+        weight: 1
+        description: Endpoints/flows work end to end against real data/state.
+  api:
+    threshold: 4
+    criteria:
+      - id: contract-fidelity
+        label: Contract fidelity
+        weight: 2
+        description: Matches the API spec (shapes, status codes, errors, pagination).
+      - id: robustness
+        label: Robustness
+        weight: 1
+        description: Validation, auth, rate limiting, and error envelopes are correct.
+      - id: craft
+        label: Craft
+        weight: 1
+        description: Consistent naming, versioning, and resource design.
+      - id: functionality
+        label: Functionality
+        weight: 1
+        description: Round-trips work end to end.

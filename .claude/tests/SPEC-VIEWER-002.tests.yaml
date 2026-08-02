@@ -1,0 +1,23 @@
+spec_id: SPEC-VIEWER-002
+generated_at: 2026-07-28T18:42:50.693Z
+cases:
+  - id: T-SPEC-VIEWER-002-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-VIEWER-002#AC-1
+    assertion: given the 3D viewer in REAL mode, when the user views the scene in either light or dark color scheme, then the ground/lighting treatment reads as an intentionally lit scene rather than a flat, undifferentiated plane, with dark mode clearly distinguishable from a washed-out or underexposed render
+    invariant: false
+  - id: T-SPEC-VIEWER-002-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-VIEWER-002#AC-2
+    assertion: given a SIMULATION run with cells watered and the simulated-time slider scrubbed, when the run is later inspected via its persisted SimulationRun row, then waterInput and affectedCells reflect the cells actually watered during the session (not an empty default), while GridCell/GridCellEvent remain byte-for-byte unchanged
+    invariant: true
+  - id: T-SPEC-VIEWER-002-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-VIEWER-002#AC-3
+    assertion: given the cell readout list with more cells than fit in the visible area, when the user scans it, then cells are grouped/organized with visual hierarchy (e.g. by bed) rather than presented as one undifferentiated flat list
+    invariant: false
+  - id: T-SPEC-VIEWER-002-NC-NC_SPRIG_VIEWER2_NO_OVERWRITE_JOURNAL
+    kind: negative-constraint
+    traces_to: SPEC-VIEWER-002#NC-SPRIG-VIEWER2-NO-OVERWRITE-JOURNAL
+    assertion: Persisting the live SIMULATION scenario (watered cells, scrubbed time) into SimulationRun.waterInput/affectedCells as the user interacts MUST NOT, under any new write path this spec introduces, ever write to GridCell or GridCellEvent — the real garden journal stays exclusively REAL-baseline-writable, per SPEC-VIEWER-001's NC-SPRIG-NO-OVERWRITE-JOURNAL, which this spec extends rather than relaxes.
+    invariant: true

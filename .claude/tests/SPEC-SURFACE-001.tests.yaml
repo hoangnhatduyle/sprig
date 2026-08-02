@@ -1,0 +1,65 @@
+spec_id: SPEC-SURFACE-001
+generated_at: 2026-07-31T00:00:00.000Z
+cases:
+  - id: T-SPEC-SURFACE-001-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-1
+    assertion: getGardenSnapshot returns a populated environment with clockRate 1 and weather null when no SimClockEpoch exists yet
+    invariant: true
+    covered_by: src/domain/grid/garden-snapshot-environment.test.ts
+  - id: T-SPEC-SURFACE-001-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-2
+    assertion: an active BedConditionOverride is surfaced as bed.equipment; a removed override is excluded
+    invariant: false
+    covered_by: src/domain/grid/garden-snapshot-environment.test.ts
+  - id: T-SPEC-SURFACE-001-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-3
+    assertion: STRESS_DIAL_LABEL.pestDisease resolves to "pest & disease pressure"; CellPicker renders it for a planting whose dominantStressDial is pestDisease
+    invariant: true
+    covered_by:
+      - src/components/garden/stress-display.test.ts
+      - src/components/garden/spec-surface-001.test.tsx
+  - id: T-SPEC-SURFACE-001-AC-AC_4
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-4
+    assertion: a stressed/critical cell's aria-label includes its health phrase, independent of selection state
+    invariant: false
+    covered_by: src/components/garden/GardenGrid.tsx (manual verification; healthBand()/cellHealthPhrase() unit-covered in stress-display.test.ts)
+  - id: T-SPEC-SURFACE-001-AC-AC_5
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-5
+    assertion: installing bed equipment does not prevent a subsequent 3D cell click on that bed from resolving to a selection
+    invariant: true
+    covered_by: e2e/simulation-surfacing.spec.ts
+  - id: T-SPEC-SURFACE-001-AC-AC_6
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-6
+    assertion: precipitationVisual returns non-null particle parameters for RAIN/STORM/snow-day weather, with STORM producing a higher count than RAIN
+    invariant: false
+    covered_by: src/domain/garden-3d/weather-visuals.test.ts
+  - id: T-SPEC-SURFACE-001-AC-AC_7
+    kind: acceptance
+    traces_to: SPEC-SURFACE-001#AC-7
+    assertion: GardenViewer3D renders no WeatherParticles and keeps frameloop="demand" when prefers-reduced-motion is set
+    invariant: true
+    covered_by: src/components/garden-3d/WeatherParticles.tsx (manual/visual verification — matchMedia behavior not exercised under jsdom)
+  - id: T-SPEC-SURFACE-001-NC-NC_SPRIG_SURFACE_READ_ONLY_WEATHER_VIEW
+    kind: negative-constraint
+    traces_to: SPEC-SURFACE-001#NC-SPRIG-SURFACE-READ-ONLY-WEATHER-VIEW
+    assertion: getWeatherDayView never creates a WeatherDay row, even when none exists for the requested date
+    invariant: true
+    covered_by: src/domain/weather/weather-read-view.test.ts
+  - id: T-SPEC-SURFACE-001-NC-NC_SPRIG_SURFACE_EQUIPMENT_NEVER_BLOCKS_PICKING
+    kind: negative-constraint
+    traces_to: SPEC-SURFACE-001#NC-SPRIG-SURFACE-EQUIPMENT-NEVER-BLOCKS-PICKING
+    assertion: every mesh in BedEquipment.tsx, WeatherParticles.tsx, and Plant.tsx's StressRing sets raycast={() => null}
+    invariant: true
+    covered_by: e2e/simulation-surfacing.spec.ts (bed equipment > installing equipment doesn't break 3D cell selection)
+  - id: T-SPEC-SURFACE-001-NC-NC_SPRIG_SURFACE_STRESS_DIAL_LABEL_COMPLETE
+    kind: negative-constraint
+    traces_to: SPEC-SURFACE-001#NC-SPRIG-SURFACE-STRESS-DIAL-LABEL-COMPLETE
+    assertion: STRESS_DIAL_LABEL has a non-empty string for every key in STRESS_DIAL_KEYS (stress-service.ts's full 9-dial StressDials interface)
+    invariant: true
+    covered_by: src/components/garden/stress-display.test.ts

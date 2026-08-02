@@ -1,0 +1,44 @@
+id: SPEC-VIEWER-002
+version: 0.1.0
+kind: domain
+title: 3D Viewer Visual Design Polish & Simulation Data Completeness
+status: draft
+context_and_scope:
+  in_scope:
+    - "Art-directed lighting/atmosphere treatment for the REAL-mode 3D scene so it reads with comparable visual intentionality to SIMULATION mode's already-distinct identity (currently: two undifferentiated brown slabs on a flat plane with baseline Lambert materials and a 3-light rig)."
+    - A designed layout for the per-cell readout list (currently a flat, undifferentiated list of up to 64+ rows) — visual hierarchy, grouping by bed, or an alternative presentation that scales past a flat list.
+    - Persist the user's actual in-progress SIMULATION scenario (watered cell ids, scrubbed simulated time) into SimulationRun.waterInput/affectedCells as the user interacts, not only the empty defaults captured at configureRun time — closing the gap where the domain layer (configureRun) already supports this but the current UI (ViewerSection) never calls it with the live scenario.
+    - "Dark-mode REAL-scene ground/ambient lighting contrast tuning beyond SPEC-VIEWER-001's baseline pass (round-6 evaluator: dark REAL ground still reads as underexposed relative to a genuinely lit ground plane)."
+    - A 'reset view' control for the 3D orbit camera.
+  out_of_scope:
+    - Free-fly walkthrough camera mode (already out of scope for SPEC-VIEWER-001, remains so here).
+    - Full 3D modeling of the rest of the backyard beyond the ground plane.
+    - A plant-model fidelity upgrade beyond stylized/low-poly geometry.
+    - Real shadow-map rendering (SPEC-VIEWER-001 ships a drei ContactShadows approximation; a full shadow-map system is a separate, larger rendering investment not bundled here).
+    - A third 'night' bucket in the shared ViewerLightLevel/BaselineLight domain type — that type is shared with SPEC-GRID-001/SPEC-LIGHT-001 and SPEC-VIEWER-001's own acceptance tests assert on exactly the two existing values; changing it is a cross-spec domain-model change, not a viewer-only visual fix.
+  external_dependencies: []
+  shared_schemas: []
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-VIEWER2-NO-OVERWRITE-JOURNAL
+    message: Persisting the live SIMULATION scenario (watered cells, scrubbed time) into SimulationRun.waterInput/affectedCells as the user interacts MUST NOT, under any new write path this spec introduces, ever write to GridCell or GridCellEvent — the real garden journal stays exclusively REAL-baseline-writable, per SPEC-VIEWER-001's NC-SPRIG-NO-OVERWRITE-JOURNAL, which this spec extends rather than relaxes.
+    severity: critical
+acceptance_criteria:
+  - id: AC-1
+    given: the 3D viewer in REAL mode
+    when: the user views the scene in either light or dark color scheme
+    then: the ground/lighting treatment reads as an intentionally lit scene rather than a flat, undifferentiated plane, with dark mode clearly distinguishable from a washed-out or underexposed render
+    invariant: false
+  - id: AC-2
+    given: a SIMULATION run with cells watered and the simulated-time slider scrubbed
+    when: the run is later inspected via its persisted SimulationRun row
+    then: waterInput and affectedCells reflect the cells actually watered during the session (not an empty default), while GridCell/GridCellEvent remain byte-for-byte unchanged
+    invariant: true
+  - id: AC-3
+    given: the cell readout list with more cells than fit in the visible area
+    when: the user scans it
+    then: cells are grouped/organized with visual hierarchy (e.g. by bed) rather than presented as one undifferentiated flat list
+    invariant: false
+depends_on:
+  - SPEC-VIEWER-001
+constitution_rules: []

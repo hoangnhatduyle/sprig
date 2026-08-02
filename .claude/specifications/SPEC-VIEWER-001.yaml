@@ -1,0 +1,96 @@
+id: SPEC-VIEWER-001
+version: 0.1.0
+kind: domain
+title: 3D Viewer Mode & Simulation Run
+status: draft
+context_and_scope:
+  in_scope:
+    - A 3D viewer with an orbit camera (drag to rotate, scroll/pinch to zoom, pan) rendering the 2 beds on a simple ground plane with stylized/low-poly plant geometry per cell, bounded to the garden scene.
+    - "SimulationRun: a domain object modeling one 'change a condition and observe' session (draft/configure/run/pause/finish), used to preview hypothetical water/light changes without touching real garden data."
+    - "ViewerState: REAL vs SIMULATION view mode, rendered live in the same 3D scene (not a separate report/panel), with an unambiguous, always-visible indicator of which mode is active."
+    - Exiting SIMULATION mode restores the REAL baseline view exactly, with no leftover simulation visual artifacts.
+  out_of_scope:
+    - Free-fly walkthrough camera mode (near-term follow-on immediately after the orbit camera ships, not part of this spec's must-have).
+    - Full 3D modeling of the rest of the backyard (deck, garage, fence, playset, fire pit) beyond the simple ground plane and future shadow-caster blockouts.
+    - A plant-model fidelity upgrade beyond stylized/low-poly.
+    - Any specific 3D engine, rendering framework, or technology choice.
+  external_dependencies: []
+  shared_schemas:
+    - SimulationRun { id, status, water_input, simulated_time, affected_cells }
+    - "ViewerState { view_mode: REAL|SIMULATION, camera_mode: ORBIT, active_simulation_run_id }"
+state_machines:
+  - name: Simulation run
+    states:
+      - DRAFT
+      - CONFIGURED
+      - RUNNING
+      - PAUSED
+      - COMPLETED
+    initial: DRAFT
+    transitions:
+      - from: DRAFT
+        event: set_scenario
+        to: CONFIGURED
+      - from: CONFIGURED
+        event: start
+        to: RUNNING
+      - from: RUNNING
+        event: pause
+        to: PAUSED
+      - from: PAUSED
+        event: resume
+        to: RUNNING
+      - from: RUNNING
+        event: finish
+        to: COMPLETED
+    forbidden:
+      - from: COMPLETED
+        to: RUNNING
+        reason: A completed simulation run must be re-configured as a new run, not resumed
+  - name: 3D viewer mode
+    states:
+      - REAL
+      - SIMULATION
+    initial: REAL
+    transitions:
+      - from: REAL
+        event: enter_simulation
+        to: SIMULATION
+      - from: SIMULATION
+        event: exit_simulation
+        to: REAL
+    forbidden:
+      - from: SIMULATION
+        to: SIMULATION
+        reason: Switching between simulation runs must pass through REAL (or an explicit run-switch event), never silently swap the active run's data in place
+negative_constraints:
+  - id: NC-SPRIG-SIM-VS-REAL-VISUAL-DISTINCTION
+    message: The 3D viewer MUST NOT render a hypothetical SIMULATION view indistinguishably from the REAL garden state view; there must always be a clear, visible indicator of which mode is active.
+    severity: high
+  - id: NC-SPRIG-ORBIT-CAMERA-BOUNDS
+    message: The orbit camera MUST NOT allow the user to navigate the view away from the garden beds into empty/undefined space; zoom and pan must stay bounded to the scene.
+    severity: medium
+  - id: NC-SPRIG-NO-OVERWRITE-JOURNAL
+    message: A simulation run MUST NOT overwrite or mutate the real garden journal history (actual planting/harvest/watering records); exiting SIMULATION mode must restore REAL state exactly, never leave simulation writes behind.
+    severity: critical
+acceptance_criteria:
+  - id: AC-3
+    given: the 3D viewer in SIMULATION mode
+    when: the user waters a cell or moves the simulated time-of-day control
+    then: the affected cell's soil/lighting updates live in the same view, the real garden journal data is left unmodified, and the viewer clearly indicates SIMULATION mode rather than REAL
+    invariant: true
+  - id: AC-6
+    given: the 3D viewer showing the garden beds
+    when: the user drags to rotate or scrolls/pinches to zoom
+    then: the orbit camera rotates and zooms smoothly while staying bounded to the garden scene, never navigating to empty/undefined space
+    invariant: false
+  - id: AC-7
+    given: the REAL view mode is active
+    when: the user exits a simulation run
+    then: the viewer transitions back to REAL and shows the actual current garden state, with no leftover SIMULATION-mode visual artifacts
+    invariant: true
+depends_on:
+  - SPEC-GRID-001
+  - SPEC-IRRIGATION-001
+  - SPEC-LIGHT-001
+constitution_rules: []

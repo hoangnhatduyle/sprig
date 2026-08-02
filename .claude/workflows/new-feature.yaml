@@ -1,0 +1,48 @@
+name: new-feature
+description: spec -> risk -> tests(RED) -> baseline -> code -> review -> evaluate(quality) -> audit -> feedback
+steps:
+  - name: spec
+    gate: spec-validation
+    requires: [spec_id, spec_validated]
+    hint: Run create_spec then validate_spec; pass spec_id + spec_validated:true.
+  - name: risk
+    gate: risk-assessment
+    requires: [risk_assessment_id, risk_level]
+    hint: Run assess_risk; pass risk_assessment_id + risk_level.
+  - name: tests-red
+    gate: test-red
+    requires: [tests_red_passed]
+    hint: Run generate_tests then validate_coverage; pass tests_red_passed:true.
+  - name: baseline
+    gate: baseline-verify
+    requires: [baseline_verified]
+    hint: >-
+      Run verify_baseline before writing code — confirm the existing suite / a basic E2E is
+      green (ECC e2e-runner, as a human user) so a prior session didn't leave the app broken.
+      Pass baseline_verified:true.
+  - name: implement
+    gate: none
+    hint: Agent implements strictly within the generated tests (GREEN).
+  - name: review
+    gate: review
+    requires: [review_routed]
+    human_checkpoint_if: high
+    hint: >-
+      Run request_review; pass review_routed:true. High/Critical pauses for approval. For UI
+      specs (.tsx/.jsx/.vue/.svelte/.html) request_review auto-routes the ECC e2e-runner —
+      run it through the Playwright MCP and test the flow as a human user before approving.
+  - name: evaluate
+    gate: quality-eval
+    requires: [quality_passed]
+    human_checkpoint_if: high
+    hint: >-
+      Run evaluate_quality. The ECC gan-evaluator agent judges the running app against the
+      rubric (Playwright, as a human user) and reports 1-5 scores; pass quality_passed:true.
+      For UI specs, drive the evaluation through the Playwright MCP.
+  - name: audit
+    gate: audit
+    requires: [decision_id]
+    hint: Run record_decision; pass decision_id.
+  - name: feedback
+    gate: none
+    hint: Capture learnings as a PR/issue against the harness repo (compound step).

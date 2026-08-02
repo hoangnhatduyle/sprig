@@ -1,0 +1,38 @@
+# Product spec template (kind: product). Features, user stories, acceptance criteria.
+id: SPEC-ONBOARD-001
+version: 0.1.0
+kind: product
+title: New-user onboarding flow
+status: draft
+
+context_and_scope:
+  in_scope:
+    - Email signup + verification
+    - First-run checklist
+  out_of_scope:
+    - SSO / social login (separate spec)
+  external_dependencies:
+    - Transactional email provider
+  shared_schemas:
+    - User { id, email, verified_at }
+
+# Product specs often have no domain state machine; leave empty if not applicable.
+state_machines: []
+
+negative_constraints:
+  - id: NC-ONB-NO-UNVERIFIED-ACCESS
+    message: An unverified user MUST NOT access authenticated features.
+    severity: high
+
+acceptance_criteria:
+  - id: AC-1
+    given: a new visitor
+    when: they submit a valid email and verify it
+    then: their account is marked verified and the first-run checklist appears
+  - id: AC-2
+    given: an unverified user
+    when: they open a protected page
+    then: they are redirected to the verification screen
+
+depends_on: []
+constitution_rules: []

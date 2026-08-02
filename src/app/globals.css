@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+:root {
+  /* Editorial-garden palette: warm parchment surface, deep forest-green
+     primary, terracotta accent for calls to action — deliberately not the
+     default gray-on-white + single-blue-accent template. */
+  --color-surface: oklch(96.5% 0.014 92);
+  --color-surface-raised: oklch(99% 0.006 92);
+  --color-text: oklch(24% 0.02 152);
+  --color-text-muted: oklch(46% 0.025 152);
+  --color-border: oklch(84% 0.018 92);
+  --color-accent: oklch(42% 0.085 152);
+  --color-accent-strong: oklch(32% 0.08 152);
+  --color-clay: oklch(58% 0.12 42);
+  --color-clay-strong: oklch(48% 0.12 42);
+  --color-scene-bg: oklch(89% 0.045 130);
+  --text-label: 0.75rem;
+  --radius-card: 0.75rem;
+  --shadow-card: 0 1px 2px oklch(24% 0.02 152 / 0.08), 0 8px 24px oklch(24% 0.02 152 / 0.06);
+
+  /* Dedicated CTA pair (not just `--color-clay` + white) so contrast stays
+     safely above AA in both themes rather than sitting right at the edge. */
+  --color-cta-bg: oklch(46% 0.13 42);
+  --color-cta-text: oklch(99% 0 0);
+
+  /* Themed alert/banner surfaces — previously these were raw oklch()
+     literals inline in CellPicker.tsx with no dark counterpart, the same
+     bug class the status-cell colors had. */
+  --color-warning-bg: oklch(90% 0.07 70);
+  --color-warning-text: oklch(32% 0.09 50);
+  --color-danger-bg: oklch(90% 0.08 25);
+  --color-danger-text: oklch(30% 0.1 25);
+
+  /* Themed focus-ring offset (Tailwind's ring-offset defaults to a hardcoded
+     white, which reads as a stray halo on a dark page). */
+  --color-ring-offset: var(--color-surface-raised);
+
+  /* SIMULATION mode ink — a deep berry/plum, deliberately outside the
+     garden's forest-green/terracotta range so a hypothetical view can never
+     be mistaken for the real one at a glance
+     (NC-SPRIG-SIM-VS-REAL-VISUAL-DISTINCTION), and reads as "dusk /
+     hypothetical" rather than the pale blue-violet-on-white that's become a
+     generic AI-generated-UI tell — same distinguishing job, less templated. */
+  --color-sim-ink: oklch(42% 0.16 350);
+  --color-sim-bg: oklch(94% 0.03 350);
+  --color-sim-on-ink: oklch(99% 0 0);
+
+  /* Per-status grid-cell colors, themed independently below — these were
+     previously hardcoded oklch literals directly in GardenGrid.tsx's
+     Tailwind classes, which meant they never responded to dark mode at
+     all (a light-mode-only palette rendered unreadable on a dark page). */
+  /* Distinct hues per status, not shades of one green, so the legend and
+     grid read at a glance instead of requiring side-by-side comparison:
+     planted=blue(250), germinated=gold(95), growing=green(152, unchanged),
+     harvested=amber(~50-70, unchanged). Kept clear of hue ~310-40, which
+     --color-sim-ink owns for the real/SIMULATION distinction above. */
+  --status-empty-bg: oklch(93% 0.008 92);
+  --status-empty-border: oklch(80% 0.015 92);
+  --status-planted-bg: oklch(88% 0.05 250);
+  --status-planted-border: oklch(55% 0.14 250);
+  --status-germinated-bg: oklch(86% 0.09 95);
+  --status-germinated-border: oklch(55% 0.13 95);
+  --status-growing-bg: oklch(66% 0.12 152);
+  --status-growing-border: oklch(38% 0.09 152);
+  --status-harvested-bg: oklch(85% 0.08 70);
+  --status-harvested-border: oklch(60% 0.12 50);
+  --status-removed-bg: oklch(93% 0.008 92);
+  --status-removed-border: oklch(80% 0.015 92);
+  --status-cell-text: oklch(22% 0.02 152);
+
+  /* Health-band dots (SPEC-SURFACE-001): a traffic-light escalation
+     (amber -> orange -> red), deliberately independent of the status-*
+     hues above since a health dot and a cell's status fill are two
+     different signals shown at the same time, not alternatives. */
+  --health-watch: oklch(78% 0.14 85);
+  --health-stressed: oklch(66% 0.16 45);
+  --health-critical: oklch(52% 0.19 25);
+
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-body: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-text);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-fraunces);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: oklch(20% 0.018 152);
+    --color-surface-raised: oklch(25% 0.02 152);
+    --color-text: oklch(94% 0.01 92);
+    --color-text-muted: oklch(75% 0.015 92);
+    --color-border: oklch(35% 0.025 152);
+    --color-accent: oklch(72% 0.11 152);
+    --color-accent-strong: oklch(82% 0.1 152);
+    --color-clay: oklch(72% 0.12 42);
+    --color-clay-strong: oklch(80% 0.11 42);
+    --color-scene-bg: oklch(27% 0.035 145);
+
+    /* Bumped from 58% to clear 4.5:1 against --color-cta-text (measured
+       4.48:1 at 58% — under AA); 63% gives real margin, not another
+       razor's-edge value. */
+    --color-cta-bg: oklch(63% 0.14 42);
+    --color-cta-text: oklch(12% 0.01 42);
+
+    --color-sim-ink: oklch(76% 0.13 350);
+    --color-sim-bg: oklch(27% 0.06 350);
+    --color-sim-on-ink: oklch(14% 0.03 350);
+
+    --color-warning-bg: oklch(32% 0.09 55);
+    --color-warning-text: oklch(90% 0.06 70);
+    --color-danger-bg: oklch(32% 0.1 25);
+    --color-danger-text: oklch(92% 0.06 25);
+
+    --status-empty-bg: oklch(30% 0.015 92);
+    --status-empty-border: oklch(42% 0.02 92);
+    --status-planted-bg: oklch(38% 0.09 250);
+    --status-planted-border: oklch(62% 0.14 250);
+    --status-germinated-bg: oklch(40% 0.11 95);
+    --status-germinated-border: oklch(64% 0.13 95);
+    --status-growing-bg: oklch(52% 0.13 152);
+    --status-growing-border: oklch(74% 0.13 152);
+    --status-harvested-bg: oklch(40% 0.1 55);
+    --status-harvested-border: oklch(66% 0.13 50);
+    --status-removed-bg: oklch(30% 0.015 92);
+    --status-removed-border: oklch(42% 0.02 92);
+    --status-cell-text: oklch(96% 0.01 92);
+
+    --health-watch: oklch(80% 0.13 85);
+    --health-stressed: oklch(70% 0.16 45);
+    --health-critical: oklch(62% 0.19 25);
+  }
+}
+
+body {
+  min-width: 20rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: var(--color-clay);
+  color: var(--color-cta-text);
+}
+
+/* The 3D viewer's particle/swarm motion is already gated via
+   usePrefersReducedMotion() (GardenViewer3D.tsx), but the 2D grid's per-cell
+   hover/focus transitions (GardenGrid.tsx's DroppableCell button) were never
+   gated by anything — the one motion gap the Phase C a11y audit found. */
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="garden-beds"] button {
+    transition: none;
+  }
+}
+
+/* Additive overrides only — bump the darker end of each status/health ramp
+   further from its paired surface rather than restructuring the light/dark
+   variable blocks above. New ground: no existing prefers-contrast pattern
+   in this file to mirror. */
+@media (prefers-contrast: more) {
+  :root {
+    --status-planted-border: oklch(40% 0.16 250);
+    --status-germinated-border: oklch(40% 0.15 95);
+    --status-growing-border: oklch(26% 0.1 152);
+    --status-harvested-border: oklch(42% 0.14 50);
+    --health-watch: oklch(65% 0.17 85);
+    --health-stressed: oklch(52% 0.19 45);
+    --health-critical: oklch(38% 0.21 25);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --status-planted-border: oklch(78% 0.16 250);
+      --status-germinated-border: oklch(78% 0.15 95);
+      --status-growing-border: oklch(86% 0.14 152);
+      --status-harvested-border: oklch(78% 0.15 50);
+      --health-watch: oklch(88% 0.14 85);
+      --health-stressed: oklch(80% 0.18 45);
+      --health-critical: oklch(72% 0.21 25);
+    }
+  }
+}
+
+/* Season Recap export (SeasonRecapPanel) — zero-new-dependency print path:
+   hide everything except the recap content itself when the user hits
+   "Print / Export" (window.print()). Inactive tab panels are already
+   excluded automatically (React's hidden={...} sets the native `hidden`
+   attribute, which browsers never print); this stylesheet only needs to
+   hide the tab NAVIGATION rows themselves (outer Today/Inventory/What-if
+   Planner/Journal tabs, and JournalPanel's own inner Feed/Season recap
+   tabs — both use role="tablist") and the grid/3D workspace. */
+@media print {
+  [role="tablist"],
+  [data-testid="garden-workspace"] {
+    display: none !important;
+  }
+
+  [data-print-recap] {
+    color: black;
+  }
+}

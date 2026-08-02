@@ -1,0 +1,82 @@
+id: SPEC-SURFACE-001
+version: 0.1.0
+kind: domain
+title: Surfacing the Simulation — Weather, Equipment & Stress/Health (Phase A)
+status: draft
+context_and_scope:
+  in_scope:
+    - "A read-only GardenEnvironmentView (GardenSnapshot.environment) composing current sim time, clock rate, day/night phase, real sun position, and today's WeatherDayView — the first time any of this reaches the client instead of staying internal to the growth engine's daily step."
+    - "getWeatherDayView: a pure read (never generates/refetches a WeatherDay) distinct from getOrGenerateWeatherDay, which writes."
+    - "setClockRateAction + a 5-preset SimClockControl UI — the one control surface for SimClockEpoch; without it every other signal in this spec is frozen at whatever rate the app happened to load with."
+    - "SnapshotBed.equipment (active BedConditionOverride rows) flowing through the single GardenSnapshot read model, replacing ConditionsPanel's previous independent listConditionOverridesAction polling loop."
+    - "2D: a WeatherBanner, per-cell health-band dots visible without clicking a cell, bed-header/GardenSummary equipment chips, and an extended grid legend."
+    - "3D: real-sun-position + cloud-cover-driven scene lighting (replacing 3 hardcoded static lights), rain/snow particles (drei Sparkles), real equipment meshes (shade cloth panel, grow-light fixture + spotLight, rain-cover arch), a base stress ring + wilt droop on Plant.tsx, and a collapsible 3D legend."
+    - "Fixing STRESS_DIAL_LABEL's missing pestDisease entry (a planting whose dominant dial was pestDisease previously rendered no label at all)."
+  out_of_scope:
+    - "Disease/pest/predator visibility (infection glyphs, pest-pressure bars, leaf-spot tinting, instanced swarms) — Phase B, extends the same GardenSnapshot/stress-display seams this phase establishes."
+    - "Soil texture, exact N/P/K/Ca numbers, evapotranspiration, daysNearSaturation, and ecology pair-effect-kind badges — Phase C."
+    - "Sim clock scrub-back / epoch history UI — SimClockControl ships 5 fixed presets only."
+    - "Shadow-mapped equipment lighting (BedEquipment's grow-light spotLight/pointLight deliberately omit castShadow — the scene configures no shadow map today)."
+  external_dependencies:
+    - "lucide-react — icon vocabulary for weather/equipment/stress/health badges and legends."
+    - "@react-three/drei's <Sparkles> — already an installed dependency, used for rain/snow particles."
+  shared_schemas:
+    - "GardenEnvironmentView { simTimeIso, clockRate, phase, sunAltitudeRad, sunAzimuthRad, sunriseIso, sunsetIso, weather: WeatherDayView | null }."
+    - "WeatherDayView { date, condition, tempHighC, tempLowC, precipitationMm, cloudCoverPct, humidityPct, windSpeedKph, source, isSnowDay }."
+    - "SnapshotEquipment { id, kind: SHADE_CLOTH|GROW_LIGHT|RAIN_COVER, intensity, installedAt } — active (removedAt: null) BedConditionOverride rows only."
+    - "HealthBand = healthy | watch | stressed | critical — derived from cumulativeStress/waterContentIndex/phenologyStage/dominantStressDial (stress-display.ts's healthBand())."
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-SURFACE-READ-ONLY-WEATHER-VIEW
+    message: getWeatherDayView MUST NEVER generate or refetch a WeatherDay row — only getOrGenerateWeatherDay (invoked from catch-up-service.ts) may write. A null result means the simulation hasn't been advanced past this date yet, not a signal to synthesize one from a read path.
+    severity: high
+  - id: NC-SPRIG-SURFACE-EQUIPMENT-NEVER-BLOCKS-PICKING
+    message: No 3D weather-particle or bed-equipment mesh may participate in raycasting (every such mesh MUST set raycast={() => null}) — cell selection depends on the per-cell overlay mesh being the closest hit, and any undecorated mesh floating above the grid would silently break clicking whichever cells it covers.
+    severity: high
+  - id: NC-SPRIG-SURFACE-COLOR-NEVER-ALONE
+    message: Every new color-coded signal (health-band dot, stress ring, status tint) MUST have a text equivalent available via an aria-label, accessible readout, or legend — color is never the only carrier (WCAG 1.4.1).
+    severity: medium
+  - id: NC-SPRIG-SURFACE-STRESS-DIAL-LABEL-COMPLETE
+    message: STRESS_DIAL_LABEL MUST have a real, non-empty entry for every key stress-service.ts's StressDials interface declares — the regression class behind the original pestDisease bug.
+    severity: medium
+acceptance_criteria:
+  - id: AC-1
+    given: a garden with at least one seeded bed and no SimClockEpoch yet
+    when: getGardenSnapshot is called
+    then: environment.clockRate is 1 and environment.weather is null, never a thrown error
+    invariant: true
+  - id: AC-2
+    given: an installed, active BedConditionOverride on a bed
+    when: getGardenSnapshot is called
+    then: that bed's equipment array contains the override; a removed override (removedAt set) is excluded
+    invariant: false
+  - id: AC-3
+    given: a planting whose last simulated day's dominant stress dial was pestDisease
+    when: CellPicker or the 3D accessible readout renders that planting's dominant dial
+    then: it displays "pest & disease pressure", never a blank/missing label
+    invariant: true
+  - id: AC-4
+    given: a 2D grid cell whose planting's healthBand is not "healthy"
+    when: the grid renders, with no cell selected/clicked
+    then: a colored health dot is visible on that cell, and the cell's aria-label includes the health phrase
+    invariant: false
+  - id: AC-5
+    given: a bed with an active BedConditionOverride and the 3D viewer rendering that bed
+    when: a user clicks a cell on that bed after the equipment mesh renders
+    then: the click still resolves to that cell (equipment meshes never win the raycast)
+    invariant: true
+  - id: AC-6
+    given: today's weather condition is RAIN or STORM, or isSnowDay is true
+    when: the 3D viewer renders with motion not reduced
+    then: falling particles are visible and animating (frameloop is "always", not the default "demand")
+    invariant: false
+  - id: AC-7
+    given: the OS/browser reports prefers-reduced-motion
+    when: the 3D viewer renders during precipitation
+    then: no particles render and frameloop stays "demand"
+    invariant: true
+depends_on:
+  - SPEC-GROWTH-001
+  - SPEC-GROWTH-002
+  - SPEC-CONDITIONS-001
+constitution_rules: []

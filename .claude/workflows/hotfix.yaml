@@ -1,0 +1,18 @@
+name: hotfix
+description: fast-path risk -> limited approval -> implement -> retroactive audit
+steps:
+  - name: risk
+    gate: risk-assessment
+    requires: [risk_assessment_id, risk_level]
+    hint: Run assess_risk; pass risk_assessment_id + risk_level.
+  - name: approval
+    gate: human
+    human_checkpoint_if: high
+    hint: Approval required only when risk >= high (fast-path for low/medium).
+  - name: implement
+    gate: none
+    hint: Apply the minimal scoped fix.
+  - name: audit
+    gate: audit
+    requires: [decision_id]
+    hint: Retroactive audit — run record_decision capturing what was changed and why.

@@ -1,0 +1,46 @@
+# Domain spec template (kind: domain). Entities, invariants, and lifecycle rules.
+id: SPEC-ORDER-001
+version: 0.1.0
+kind: domain
+title: Trading order lifecycle
+status: draft
+
+context_and_scope:
+  in_scope:
+    - Order entity and its state transitions
+    - Stop-loss invariants
+  out_of_scope:
+    - Broker connectivity (api spec)
+  external_dependencies: []
+  shared_schemas:
+    - Order { id, symbol, qty, side, status }
+
+state_machines:
+  - name: order
+    states: [DRAFT, SUBMITTED, FILLED, CANCELLED, REJECTED]
+    initial: DRAFT
+    transitions:
+      - { from: DRAFT, event: submit, to: SUBMITTED }
+      - { from: SUBMITTED, event: fill, to: FILLED }
+      - { from: SUBMITTED, event: cancel, to: CANCELLED }
+      - { from: SUBMITTED, event: reject, to: REJECTED }
+    forbidden:
+      - { from: FILLED, to: CANCELLED, reason: "A filled order cannot be cancelled" }
+
+negative_constraints:
+  - id: NC-ORD-NO-DISABLE-STOPLOSS
+    message: An agent MUST NOT disable stop-loss; only widen the threshold within cap.
+    severity: critical
+  - id: NC-ORD-NO-LIVE-WITHOUT-PAPER
+    message: A live order MUST NOT be placed without the paper-trade flag cleared explicitly.
+    severity: critical
+
+acceptance_criteria:
+  - id: AC-1
+    given: a FILLED order
+    when: cancel is requested
+    then: the request is rejected (forbidden FILLED->CANCELLED)
+    invariant: true
+
+depends_on: []
+constitution_rules: []

@@ -1,0 +1,22 @@
+name: security-change
+description: security-review -> risk -> approval -> implement -> audit
+steps:
+  - name: security-review
+    gate: review
+    requires: [review_routed]
+    hint: Run request_review with concern 'security'; pass review_routed:true.
+  - name: risk
+    gate: risk-assessment
+    requires: [risk_assessment_id, risk_level]
+    hint: Run assess_risk; pass risk_assessment_id + risk_level.
+  - name: approval
+    gate: human
+    human_checkpoint: true
+    hint: Mandatory human approval before any security change is implemented.
+  - name: implement
+    gate: none
+    hint: Implement strictly within the approved scope.
+  - name: audit
+    gate: audit
+    requires: [decision_id]
+    hint: Run record_decision; pass decision_id.

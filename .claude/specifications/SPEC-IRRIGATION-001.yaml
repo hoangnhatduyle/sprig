@@ -1,0 +1,115 @@
+id: SPEC-IRRIGATION-001
+version: 0.1.0
+kind: domain
+title: Automated Irrigation & Rain Barrel Water System
+status: draft
+context_and_scope:
+  in_scope:
+    - "The real automated irrigation system: a rigid PVC manifold with a shut-off valve at each bed's inner corner, joined by a ground-level pipe connecting both beds, that runs every morning at 08:00 for 10 minutes and waters all cells in both beds equally."
+    - Automatic trigger of that daily cycle in REAL view mode as simulated/real time crosses the 08:00 window, with no user action required.
+    - A manual per-cell water override available only in SIMULATION mode, applied as an instant visual state change (dry to wet soil), not a gradual moisture-decay simulation.
+    - Rain barrel(s) modeled as a water source/capacity constraint feeding the simulation; count, capacity, and plumbing topology are assumptions pending user confirmation, not documented facts.
+  out_of_scope:
+    - Real weather/rain/cloud data driving barrel fill or irrigation timing (phase two+; only the fixed 08:00 wall-clock schedule is in scope for must-have).
+    - Soil moisture decay simulation over time (a distinct 'moisture' concept, deferred, separate from 'water applied').
+    - Live hardware sensors (real soil moisture probes, real flow meters).
+    - Visually distinguishing 'actively being watered' (hose flowing) from 'recently watered, hose off' — both render as the same wet-soil visual for must-have.
+  external_dependencies: []
+  shared_schemas:
+    - RainBarrel { id, capacity_gallons, current_gallons, linked_downspout } — capacity_gallons (50gal) and linked_downspout are assumptions, not documented facts; no page in the source document shows rain barrel plumbing, and only one barrel is visible in the site photo (p.27). Likely a SEPARATE water source from the automated irrigation manifold (which appears spigot-fed), not plumbed into it.
+    - "IrrigationSystem { id, bed_ids: [bed1_id, bed2_id], daily_start_time: \"08:00\", duration_minutes: 10, coverage: ALL_CELLS, water_source: SPIGOT_ASSUMED } — physically a rigid PVC manifold with a shut-off valve at each bed's inner corner joined by a ground-level pipe between the beds; covers all cells in both beds equally; drives automatic watering in REAL view mode, distinct from manual per-cell watering in SIMULATION mode."
+state_machines:
+  - name: Rain barrel water level
+    states:
+      - EMPTY
+      - PARTIAL
+      - FULL
+      - OVERFLOWING
+    initial: EMPTY
+    transitions:
+      - from: EMPTY
+        event: add_water
+        to: PARTIAL
+      - from: PARTIAL
+        event: add_water
+        to: PARTIAL
+      - from: PARTIAL
+        event: reach_capacity
+        to: FULL
+      - from: FULL
+        event: add_water
+        to: OVERFLOWING
+      - from: OVERFLOWING
+        event: rain_stop
+        to: FULL
+      - from: FULL
+        event: draw_water
+        to: PARTIAL
+      - from: PARTIAL
+        event: draw_water
+        to: EMPTY
+    forbidden:
+      - from: EMPTY
+        to: OVERFLOWING
+        reason: Volume must pass through PARTIAL/FULL before overflow can occur
+  - name: Irrigation cycle
+    states:
+      - IDLE
+      - RUNNING
+    initial: IDLE
+    transitions:
+      - from: IDLE
+        event: schedule_time_reached
+        to: RUNNING
+      - from: RUNNING
+        event: duration_elapsed
+        to: IDLE
+    forbidden:
+      - from: RUNNING
+        to: RUNNING
+        reason: The daily cycle runs once per day for its fixed 10-minute duration; re-triggering mid-run instead of waiting for duration_elapsed would double-water without a real-world equivalent
+negative_constraints:
+  - id: NC-SPRIG-BARREL-CAPACITY-CAP
+    message: A rain barrel's simulated stored volume MUST NOT exceed its rated 50-gallon capacity; excess MUST route to an explicit overflow event rather than being silently discarded or clamped without logging.
+    severity: medium
+  - id: NC-SPRIG-WATERED-SOIL-VISUAL
+    message: A watered grid cell's soil MUST render visibly darker and wet-looking compared to an unwatered cell; the water state MUST NOT be purely numeric/invisible in the 3D view.
+    severity: medium
+  - id: NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL
+    message: In REAL view mode, the daily 8:00 AM/10-minute irrigation event MUST trigger automatically as simulated/real time crosses that window; it MUST NOT require manual user action to occur, mirroring how sunrise/sunset automatically drives the light system.
+    severity: high
+  - id: NC-SPRIG-MANUAL-WATER-NOT-A-SUBSTITUTE
+    message: Manual per-cell watering in SIMULATION mode MUST NOT be presented as replacing or overriding the real daily irrigation baseline's record; it is an experimental overlay, and exiting SIMULATION mode MUST restore the REAL baseline (including the automatic 8 AM cycle), not the manually-watered state.
+    severity: medium
+  - id: NC-SPRIG-NO-WEATHER-API-IN-MUST-HAVE
+    message: The must-have build MUST NOT depend on a live weather/rain/cloud data source; only real sunrise/sunset (sun-position) data is an in-scope external dependency, and it belongs to the LIGHT spec, not this one.
+    severity: low
+acceptance_criteria:
+  - id: AC-4
+    given: two rain barrels modeled at 50 gallons capacity each
+    when: simulated rainfall would exceed the remaining combined capacity
+    then: an OVERFLOWING event is recorded for the affected barrel instead of the excess volume silently vanishing
+    invariant: false
+  - id: AC-10
+    given: a dry grid cell
+    when: the user applies water to it in SIMULATION mode
+    then: the cell's soil immediately renders visibly darker and wet-looking, distinct from its prior dry appearance
+    invariant: false
+  - id: AC-11
+    given: the 3D viewer in REAL view mode
+    when: simulated/real time crosses 8:00 AM
+    then: the IrrigationSystem transitions IDLE to RUNNING and all cells in both beds render visibly wet within the 10-minute window, with no user action required to trigger it
+    invariant: true
+  - id: AC-12
+    given: the IrrigationSystem has been RUNNING for 10 minutes
+    when: the duration elapses
+    then: the IrrigationSystem transitions back to IDLE automatically, and cells remain in their wet visual state per the existing no-decay water model (not reverted to dry)
+    invariant: false
+  - id: AC-13
+    given: SIMULATION mode with cells manually watered by the user
+    when: the user exits back to REAL view mode
+    then: the viewer shows the REAL baseline (including whatever the automatic 8 AM cycle produced), not the manually-watered SIMULATION state
+    invariant: false
+depends_on:
+  - SPEC-GRID-001
+constitution_rules: []

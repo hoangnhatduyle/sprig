@@ -1,0 +1,93 @@
+id: SPEC-GROWTH-003
+version: 0.1.0
+kind: domain
+title: Disease, Pests/Predators & Weed Pressure (Phase 3)
+status: draft
+context_and_scope:
+  in_scope:
+    - "Disease infection modeling (src/domain/disease/): a curated disease-catalog.ts (powdery-mildew, root-rot, blight) with per-species host susceptibility, a favorable-condition function, and a per-severity effect profile (light penalty / root-function penalty / direct biomass loss). disease-service.ts computes P(infect) = baseRate x conditionMatch x hostSusceptibility x (1 + neighborInfectionPressure) x (1 - resistanceTrait), deterministically seeded per (disease, cellPlantingId, date), and steps severity toward growth or resolution based on whether conditions stay favorable. At most one active infection per planting at a time — a documented 'not per-spore simulation' simplification."
+    - "Pest and predator population dynamics (src/domain/pests/): bed-scoped PestPopulation/PredatorPopulation state, stepped via logistic growth (food-capped by host-plant biomass, filtered by each pest's hostGrowthHabits) coupled to a Lotka-Volterra predator-prey pair per predator/prey-list. Seasonal activity windows decay populations toward a small overwintering floor outside-season rather than to true zero. Damage (aphid energy-sap, caterpillar/slug direct leaf-eating, with a seedling-stage bonus for slugs) is computed per planting from the bed's current population snapshot."
+    - "A 9th stress dial, pestDisease (stress-service.ts), unifying disease severity and pest pressure into the existing Liebig's-Law combination — alongside disease/pest-specific effects (mildew's light penalty, root rot's root-function penalty, direct biomass loss, aphid's energy-income penalty) that do NOT fit a resource-scarcity shape and are applied directly in growth-engine-service.ts instead."
+    - "Weed pressure (src/domain/soil/weed-pressure-service.ts): a per-cell weedPressureFraction that grows on bare/unmulched soil under moderate warm-moist conditions, suppressed by mulchFactor (reusing water-bucket-service.ts's own mulch-effect convention), and multiplies growthPenalty directly (the same treatment allelopathicPenalty already gets) rather than joining the Liebig dial set."
+    - "Companion-planting predator attraction: a new PREDATOR_ATTRACT CompanionEffectSource kind (companion-catalog.ts), seeded for marigold alongside its existing POLLINATOR_BOOST source, bed-averaged into pest-service.ts's predator immigration term via ecology-service.ts's new EcologyModifiers.predatorAttraction field."
+    - "Five new human actions: weeding (care-actions-service.ts, knocks down weedPressureFraction), fungicide (disease/disease-action-service.ts, knocks down a cell's active infection severity), pesticide (pests/pest-action-service.ts, knocks down a bed's targeted pest population, with an optional broad-spectrum mode that also suppresses that bed's predator populations — a real tradeoff), and predator release (pests/pest-action-service.ts, a bounded direct addition to a bed's predator population) — all wired through src/app/actions.ts."
+    - "A pure isSnowDay(weather) predicate (src/domain/weather/snow.ts) — climate-gated by that day's own WeatherDay values (temp <= 0C and nonzero precipitation) rather than a separate ClimateZone table, which this codebase doesn't have. Data-layer only; wiring it into the 3D viewer is an explicit follow-up (see out_of_scope)."
+    - "A §17 validation suite (src/domain/growth/validation/species-validation.test.ts): deterministic (fixed synthetic weather, not the real procedural provider — no dependency on the real calendar date the test happens to run on) vitest runs asserting the two §17 checks this codebase currently has real modeled data for — relative days-to-maturity ordering across species with different GDD thresholds, and severe (not indifferent) cumulativeStress under prolonged simulated drought. §17's yield-per-plant and water-usage-vs-FAO-tables checks are deferred: they need a matureYieldReference-style field this codebase's SpeciesProfile doesn't have yet, out of scope for this phase (see out_of_scope)."
+  out_of_scope:
+    - "3D visual assets for disease lesions, pest damage, or snow (particle systems, custom meshes, an InstancedMesh rewrite) — no existing read model surfaces 'today's weather' or 'this planting's active infection' to the viewer yet; wiring those in is a follow-up once such a read model exists, the same orthogonal-follow-up treatment SPEC-GROWTH-002 gave the InstancedMesh rendering rewrite."
+    - "A weed-pressure Liebig stress dial — weeds are modeled as a direct growthPenalty multiplier (like allelopathicPenalty), never joining the 9-dial stress-service.ts combination, per the architecture doc's own lighter treatment of this subsystem."
+    - "Multi-infection-per-planting or per-pest-species predator matching beyond the two seeded predators (ladybug -> aphid; general-beneficials -> aphid/caterpillar/slug) — both documented cheapness simplifications matching the architecture doc's §1/§9/§10 'not per-spore/per-bug simulation' stance."
+    - "A ClimateZone table with monthly normals — isSnowDay derives snow from that day's own WeatherDay values instead, sufficient for the visual-only/growth-halt scope this phase targets."
+    - "§17's yield-per-plant and cumulative-water-usage-vs-FAO-table validation checks — both need a matureYieldReference-style field SpeciesProfile doesn't carry yet; the validation suite in this phase covers only the two checks (maturity-time ordering, drought survival) the current data model can actually support."
+    - "Dormancy/perennial overwintering, directional wind fields, and the realism/relaxed assist-level dial — unchanged from SPEC-GROWTH-001/002's own Phase 4 deferral."
+  external_dependencies: []
+  shared_schemas:
+    - "New tables: DiseaseInfection { cellPlantingId, diseaseKey, severity, startedAt, resolvedAt?, updatedThroughDate } (episode-per-row, mirrors CellPlanting's own plantedAt/removedAt pattern); PestPopulation { bedId, pestKey, population, updatedThroughDate } and PredatorPopulation { bedId, predatorKey, population, updatedThroughDate } (unique per bedId+key, updated in place)."
+    - "CellEnvironmentState addition: weedPressureFraction (0..1, same convention as soilMoistureFraction)."
+    - "SpeciesProfile addition: diseaseResistanceTrait (0..1, default 0)."
+    - "StressDials addition: pestDisease (9th dial, joins the existing Liebig Math.max combination in combineStress)."
+    - "EcologyModifiers addition: predatorAttraction (0..1, bed-averaged before use, unlike the other three per-cell modifiers)."
+    - "CompanionEffectKind addition: PREDATOR_ATTRACT."
+  state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-GROWTH3-ONE-INFECTION-AT-A-TIME
+    message: disease-service.ts / catch-up-service.ts MUST NEVER create a new DiseaseInfection row for a planting that already has an unresolved (resolvedAt null) infection — at most one active infection per cellPlantingId at any time, a documented cheapness simplification.
+    severity: medium
+  - id: NC-SPRIG-GROWTH3-DISEASE-PEST-STILL-ONE-PIPELINE
+    message: Disease and pest effects MUST reach the growth engine only through daily-step-orchestrator.ts's DailyStepInputs (activeDiseaseEffect / pestPressureDialValue / pestDamage) — neither catch-up-service.ts nor whatif-projection-service.ts may apply disease/pest effects to biomass directly, preserving NC-SPRIG-GROWTH2-ONE-PIPELINE-TWO-CALLERS.
+    severity: high
+  - id: NC-SPRIG-GROWTH3-WHATIF-NO-PATHOLOGY
+    message: whatif-projection-service.ts MUST hold disease/pest pressure at neutral (NEUTRAL_DISEASE_EFFECT, pestPressureDialValue 0, NEUTRAL_PEST_DAMAGE) for every projected day — a what-if preview simulates hypothetical CONDITIONS, never hypothetical new infections or pest population growth, and per NC-SPRIG-GROWTH2-NO-OVERWRITE-JOURNAL must never write DiseaseInfection/PestPopulation/PredatorPopulation rows regardless.
+    severity: high
+  - id: NC-SPRIG-GROWTH3-ACTION-BOUNDS
+    message: Every new care/pest action (fungicide's fixed reduction fraction, pesticide's fixed reduction fraction, predator release amount) MUST be validated or fixed against a realistic bound before being applied, mirroring NC-SPRIG-GROWTH2-CARE-ACTION-BOUNDS's own precedent — none may set a population or severity to an unbounded value.
+    severity: medium
+  - id: NC-SPRIG-GROWTH3-PEST-BED-SCOPED
+    message: PestPopulation/PredatorPopulation state and their stepping in pest-service.ts MUST remain bed-scoped, never per-cell — a pesticide/predator-release action targets a bed, and pest pressure read by a planting always comes from its OWN bed's population state, never a neighboring bed's.
+    severity: medium
+acceptance_criteria:
+  - id: AC-1
+    given: a cucumber planting under repeated high-humidity, moderate-temperature simulated weather with no neighbors
+    when: catch-up runs enough simulated days
+    then: a powdery-mildew DiseaseInfection row is eventually created for that planting, its severity rises while conditions stay favorable, and the planting's effective light interception (and therefore growth) measurably drops
+    invariant: false
+  - id: AC-2
+    given: an active infection whose severity is low and simulated weather turns dry/unfavorable for several consecutive days
+    when: catch-up processes that span
+    then: severity decays and the infection resolves (resolvedAt set), matching §15's "recoverable, not a death sentence"
+    invariant: false
+  - id: AC-3
+    given: a bed with several host plantings and no predators
+    when: catch-up runs many simulated days within pest-catalog.ts's aphid activeSeasonMonths
+    then: the bed's aphid PestPopulation measurably rises toward its host-biomass-scaled carrying capacity
+    invariant: false
+  - id: AC-4
+    given: the same bed, but with a marigold planted (PREDATOR_ATTRACT source) and releasePredatorsAction called for "ladybug"
+    when: catch-up runs the same number of simulated days
+    then: the ladybug PredatorPopulation rises faster (higher insectary-boosted immigration) and the aphid PestPopulation is measurably suppressed relative to AC-3's no-predator case
+    invariant: false
+  - id: AC-5
+    given: a planting with an active disease infection AND bed-level pest pressure both present simultaneously
+    when: computeStressDials runs for that day
+    then: dials.pestDisease equals the max of the two (not their sum), and combineStress reflects it correctly when it's the largest of the 9 dials
+    invariant: false
+  - id: AC-6
+    given: a cell with elevated weedPressureFraction and an otherwise-neutral planting
+    when: applyWeedingAction is called on that cell
+    then: weedPressureFraction drops by WEEDING_REDUCTION_FRACTION and the next catch-up day's growthPenalty from weed competition is correspondingly smaller
+    invariant: false
+  - id: AC-7
+    given: a bed selected for a what-if preview while a real active infection/pest population exists on one of its plantings
+    when: previewConditionsAction runs the projection
+    then: no DiseaseInfection, PestPopulation, or PredatorPopulation row changes, and every projected day uses neutral disease/pest pressure regardless of the real state
+    invariant: true
+  - id: AC-8
+    given: a WeatherDay with tempLowC <= 0 and precipitationMm > 0
+    when: isSnowDay(weather) is called
+    then: it returns true; for any day violating either condition it returns false
+    invariant: false
+depends_on:
+  - SPEC-GROWTH-001
+  - SPEC-GROWTH-002
+  - SPEC-CONDITIONS-001
+constitution_rules: []

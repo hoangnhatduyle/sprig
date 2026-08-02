@@ -1,0 +1,105 @@
+id: SPEC-PLANTUI-001
+version: 0.2.0
+kind: domain
+title: Cell Plant Assignment UI
+status: draft
+context_and_scope:
+  in_scope:
+    - Clicking/tapping a grid cell in the rendered garden view opens a plant picker sourced from the plant catalog.
+    - Selecting a plant from the picker for an EMPTY or REMOVED cell calls INVENTORY's assignInventoryPlant (mode 'replace') to assign it to the clicked cell, spending one unit of that plant's seed stock — the same inventory-consuming primitive the drag-and-drop-from-inventory flow uses, so both entry points keep seed counts consistent.
+    - Selecting a different plant for a cell that already has an active planting replaces it via assignInventoryPlant (mode 'replace'), matching GRID's existing 'a new plant is a new cycle' semantics (prior history preserved in the journal, nothing silently overwritten).
+    - A distinct 'add companion' action lets the user add a second simultaneously-active plant to an already-planted cell via assignInventoryPlant (mode 'companion'), without replacing the first, also spending one unit of seed stock.
+    - Assignment is blocked with a clear message when the selected plant has zero seed stock remaining; GRID's/INVENTORY's InventoryValidationError must never be triggered by normal picker use.
+    - A 'Remove' action next to each actively-planted cell's primary plant and each companion calls GRID's removePlanting to remove that specific plant — vacating the whole cell (REMOVED status) if it was the only active planting, or leaving the rest of a companion-planted cell untouched otherwise.
+    - "Visual feedback: the clicked/selected cell is visually distinguished, and the picker displays the cell's current plant(s) (including any companions) before a new selection is made."
+  out_of_scope:
+    - 3D camera/orbit controls (owned by SPEC-VIEWER-001).
+    - Simulation/hypothetical preview editing of water or light (owned by SPEC-VIEWER-001).
+    - The plant catalog's own data-entry/management UI (assumed to exist or be seeded elsewhere; this spec only consumes it).
+    - Lifecycle-advance actions on a HARVESTED cell (germinate/grow/harvest/clear) UI — a separate concern, not covered here. The Remove action added by this revision only ever applies to a non-harvested, actively-planted cell.
+    - The drag-and-drop-from-inventory flow's own amount/mode confirmation dialog (a separate entry point that already called assignInventoryPlant before this revision) — this spec only covers the click-to-assign picker converging onto the same primitive.
+    - Any specific picker widget library or rendering technology choice.
+  external_dependencies: []
+  shared_schemas:
+    - Reuses GRID's Bed/GridCell/Plant/CellPlanting schemas as-is, plus INVENTORY's Plant.seedQuantity; no new persisted schema introduced by this spec.
+state_machines:
+  - name: Cell picker interaction
+    states:
+      - IDLE
+      - CELL_SELECTED
+      - PICKER_OPEN
+    initial: IDLE
+    transitions:
+      - from: IDLE
+        event: click_cell
+        to: CELL_SELECTED
+      - from: CELL_SELECTED
+        event: open_picker
+        to: PICKER_OPEN
+      - from: PICKER_OPEN
+        event: select_plant
+        to: IDLE
+      - from: PICKER_OPEN
+        event: cancel
+        to: IDLE
+      - from: CELL_SELECTED
+        event: deselect
+        to: IDLE
+    forbidden:
+      - from: IDLE
+        to: PICKER_OPEN
+        reason: The picker must not open without a cell being selected first, to avoid an ambiguous 'which cell' assignment.
+negative_constraints:
+  - id: NC-SPRIG-PLANTUI-NO-STALE-CELL-REF
+    message: The UI MUST NOT call assignInventoryPlant/removePlanting with a bedId/column/row that no longer corresponds to the cell the user actually clicked (e.g. after a re-render or list reorder) — the picker's target cell reference must stay bound to the specific clicked cell.
+    severity: high
+  - id: NC-SPRIG-PLANTUI-NO-DIRECT-HARVESTED-REPLACE
+    message: The UI MUST NOT offer a direct 'replace plant' action on a HARVESTED cell; GRID's HarvestedCellError must never be triggered by normal picker use, only by a caller bypassing the UI.
+    severity: medium
+  - id: NC-SPRIG-PLANTUI-NO-COMPANION-ON-EMPTY
+    message: The UI MUST NOT offer 'add companion' on an EMPTY or REMOVED cell; GRID's NoActivePlantingError must never be triggered by normal picker use.
+    severity: medium
+  - id: NC-SPRIG-PLANTUI-NO-OUT-OF-STOCK-ASSIGN
+    message: The UI MUST NOT call assignInventoryPlant for a plant with zero seed stock remaining; it must block the action locally with a clear message instead of relying on INVENTORY's InventoryValidationError to reject it.
+    severity: medium
+  - id: NC-SPRIG-PLANTUI-NO-REMOVE-ON-HARVESTED
+    message: The UI MUST NOT offer the Remove-plant action on a HARVESTED cell; that cell's clear/remove lifecycle actions remain the separate, currently-stubbed HarvestedActions concern.
+    severity: medium
+acceptance_criteria:
+  - id: AC-1
+    given: the garden view with an EMPTY cell
+    when: the user clicks the cell and selects a plant from the picker
+    then: assignInventoryPlant is called (mode 'replace', amount one unit) with that cell's exact coordinates and the selected plant id, and the cell's display updates to show the new plant
+    invariant: false
+  - id: AC-2
+    given: a cell with an active plant
+    when: the user clicks it and selects a different plant via the replace action
+    then: assignInventoryPlant is called (mode 'replace') and the cell's display updates to the new plant, matching GRID's existing 'new plant = new cycle' semantics
+    invariant: false
+  - id: AC-3
+    given: a cell with an active plant
+    when: the user chooses 'add companion' and selects a second plant
+    then: assignInventoryPlant is called (mode 'companion') and the cell's display shows both plants simultaneously active
+    invariant: false
+  - id: AC-4
+    given: a HARVESTED cell
+    when: the user clicks it
+    then: the UI offers only clear/remove actions, never a direct 'replace plant' action, so GRID's HarvestedCellError is never triggered by normal use
+    invariant: true
+  - id: AC-5
+    given: a cell with an active plant
+    when: the user clicks that plant's Remove action
+    then: removePlanting is called with that cell's exact coordinates and the plant's id, and the cell's display returns to unplanted (or, for a companion, to showing only the remaining plant(s))
+    invariant: false
+  - id: AC-6
+    given: a plant option with zero seed stock remaining
+    when: the user selects it from the picker to assign or add as a companion
+    then: assignInventoryPlant is never called and the UI shows a clear 'out of stock' message instead
+    invariant: false
+depends_on:
+  - SPEC-GRID-001
+# assignInventoryPlant/Plant.seedQuantity (src/domain/plant-catalog/inventory-service.ts)
+# have no formal SPEC-INVENTORY-* of their own yet — this revision consumes
+# them as an existing, tested capability (already used by the drag-and-drop
+# flow) rather than introducing a new dependency spec for them.
+constitution_rules: []

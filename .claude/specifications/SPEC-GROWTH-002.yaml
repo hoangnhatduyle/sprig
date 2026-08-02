@@ -1,0 +1,91 @@
+id: SPEC-GROWTH-002
+version: 0.1.0
+kind: domain
+title: Nutrients, Stress, Ecology & Pollination (Phase 2)
+status: draft
+context_and_scope:
+  in_scope:
+    - "Per-cell N/P/K/Ca(+micronutrient) pools (CellEnvironmentState), advanced daily by src/domain/soil/nutrient-service.ts: decomposition of a shared residue pool into available nutrients, root/moisture-driven uptake, and drainage-driven leaching (nitrogen fastest, phosphorus/potassium/calcium far slower)."
+    - "Three new human care actions (src/domain/soil/care-actions-service.ts, wired through src/app/actions.ts and CellPicker.tsx's new Care section): mulching (sets a per-cell mulch depth, reducing evaporation and damping soil-temp swings), composting (slow-release organic matter into the shared residue pool), and fertilizing (SYNTHETIC: fast direct N/P/K addition, leaches easily; ORGANIC: joins the same slow-release residue pool as compost)."
+    - "The full 8-dial stress system (src/domain/growth/stress-service.ts, extracted from growth-engine-service.ts per its own Phase 1 comment): heat/cold/drought (Phase 1) joined by overwatering (a persisted days-near-saturation streak, not an instant reading), shade (species lightNeedFraction vs. GridCell.baselineLight), nutrient (worst of the four pool satisfactions), transplant shock (exponential decay from CellPlanting.plantedAt), and wind (species windLodgingThresholdKph vs. daily wind speed) — still combined via Liebig's Law of the Minimum."
+    - "Companion-planting ecology (src/domain/ecology/): a curated, code-level source table (companion-catalog.ts, not a DB table) of species that project an effect onto same-cell or orthogonally-adjacent cells — nitrogen-fixing (pole-bean) and pollinator-boosting (marigold) sources are seeded; an allelopathic-antagonism kind exists in the type system but is currently unseeded."
+    - "Pollination-gated fruit-set (growth-engine-service.ts's effectiveAllocation): INSECT-dependent species (SpeciesProfile.pollinationDependency) convert flower biomass to fruit biomass in proportion to a daily pollinatorActivity value (baseline + companion pollinator-boost - rain/cold suppression); the unconverted share stays in the flower pool rather than vanishing. SELF/WIND-dependent species are never gated."
+    - "src/domain/growth/daily-step-orchestrator.ts: the shared per-day pipeline (water -> nutrients -> stress -> growth, with mulch/ecology folded in) both catch-up-service.ts (real) and whatif-projection-service.ts (hypothetical) now call, so the two can never silently diverge as the pipeline grows."
+    - "Two new SpeciesProfile catalog entries (carrot: a new ROOT_CROP growth-habit archetype; pole-bean: the nitrogen-fixing companion source) and a chlorosis (yellowing) visual tint on low micronutrient sufficiency (Plant.tsx)."
+  out_of_scope:
+    - "Soil pH drift and a separately-tracked 'soil biological activity index' scalar — folded into nutrient-service.ts's BASE_DECOMPOSITION_RATE constant, a documented simplification."
+    - "Weed pressure — deferred to Phase 3 alongside disease/pest, per the roadmap."
+    - "Disease and pest population simulation — Phase 3, unchanged from SPEC-GROWTH-001's own deferral."
+    - "The InstancedMesh 3D rendering rewrite (architecture doc §14) — a pure performance refactor orthogonal to this phase's biology work, tracked as a separate follow-up."
+    - "Remaining growth-habit archetypes beyond ROOT_CROP (sprawling-vine, tall-cane) and richer per-species leaf/fruit shape variety — only one new archetype ships this phase."
+    - "A real relocate/transplant human action that moves a CellPlanting to a new cell — transplant shock is instead modeled from the existing CellPlanting.plantedAt (every planting experiences establishment shock), not from a new capability."
+    - "Persisting a SimulationRunProjectionDay-style table for what-if previews, or exposing raw ConditionModifiers-style sliders for nutrients — out of this phase's UI scope."
+  external_dependencies: []
+  shared_schemas:
+    - "CellEnvironmentState additions: nitrogenPoolFraction, phosphorusPoolFraction, potassiumPoolFraction, calciumPoolFraction, micronutrientIndexFraction (0..1 each, same convention as soilMoistureFraction), residueOrganicMatterPool (unbounded-but-ceilinged accumulator), mulchDepthMm, daysNearSaturation."
+    - "SpeciesProfile additions: lightNeedFraction, windLodgingThresholdKph, baseNutrientDemand, pollinationDependency (SELF | WIND | INSECT)."
+    - "PlantingBiologyState addition: dominantStressDial (nullable string) — whichever of the 8 stress-service.ts dials was largest on the last simulated day, only set once it crosses stress-service.ts's display threshold; the read-model convenience CellPicker.tsx's GrowthReadout surfaces without re-deriving weather."
+    - "GrowthHabit addition: ROOT_CROP."
+    - "CompanionEffectSource { speciesKey, kind: NITROGEN_FIX | POLLINATOR_BOOST | ALLELOPATHIC, magnitude, targetSpeciesKey? } — code-level config (src/domain/ecology/companion-catalog.ts), not a Prisma model."
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-GROWTH2-ONE-PIPELINE-TWO-CALLERS
+    message: The real catch-up step (catch-up-service.ts) and the what-if projection (whatif-projection-service.ts) MUST both advance a planting by calling daily-step-orchestrator.ts's runOneDayForPlanting — neither MUST reimplement its own copy of the water/nutrient/stress/growth sequence, so the two can never silently diverge.
+    severity: high
+  - id: NC-SPRIG-GROWTH2-NO-OVERWRITE-JOURNAL
+    message: A what-if projection (whatif-projection-service.ts) MUST NEVER write PlantingBiologyState, CellEnvironmentState, GridCell, or GridCellEvent rows — including the Phase 2 nutrient/mulch/ecology fields — regardless of how many new inputs the daily step gains; it computes and discards, exactly as SPEC-CONDITIONS-001's NC-SPRIG-NO-OVERWRITE-JOURNAL already requires.
+    severity: high
+  - id: NC-SPRIG-GROWTH2-CARE-ACTION-BOUNDS
+    message: Every care action (mulch depth, compost amount, fertilizer N/P/K amounts) MUST be validated against a fixed realistic bound (care-actions-service.ts's assertInRange) before being applied — none of the three actions may set a pool or depth to an unbounded or unrealistic value, mirroring bed-condition-override-service.ts's INTENSITY_BOUNDS precedent.
+    severity: medium
+  - id: NC-SPRIG-GROWTH2-ECOLOGY-BED-LOCAL
+    message: Companion-planting proximity (ecology-service.ts's computeEcologyModifiersForBed) MUST only consider cells within the same Bed — column/row adjacency has no cross-bed meaning, so a source species in one bed MUST NEVER affect a cell in a different bed.
+    severity: medium
+  - id: NC-SPRIG-GROWTH2-POLLINATION-NEVER-DESTROYS-BIOMASS
+    message: When an INSECT-dependent species' pollinatorActivity is low, the unconverted flower->fruit allocation share MUST remain in the flower biomass pool, never be discarded — poor pollination reads as "flowers that didn't convert," not as lost growth budget.
+    severity: medium
+acceptance_criteria:
+  - id: AC-1
+    given: a cell with a fresh CellEnvironmentState (default 0.6 nutrient pool fractions) and a planting with nonzero rootFraction
+    when: several simulated days pass with no fertilizing action
+    then: the nitrogen/phosphorus/potassium pool fractions measurably decrease from uptake, and the planting's nutrientSatisfaction/nutrient stress dial reflects the depletion
+    invariant: false
+  - id: AC-2
+    given: a cell with mulchDepthMm raised via applyMulchAction
+    when: catch-up next runs a rainy, hot simulated day
+    then: the resulting soilMoistureFraction is higher (less evaporation) and soilTempC swings less than an otherwise-identical unmulched cell under the same weather
+    invariant: false
+  - id: AC-3
+    given: a cell fertilized with SYNTHETIC nitrogen immediately before a heavy-rain simulated day
+    when: catch-up processes that day
+    then: the nitrogen pool's leaching loss is measurably larger than phosphorus/potassium's loss under the same drainage event
+    invariant: false
+  - id: AC-4
+    given: a cell whose soilMoistureFraction stays at or above the saturation threshold for several consecutive simulated days
+    when: catch-up processes that span
+    then: daysNearSaturation grows past OVERWATER_GRACE_DAYS and the overwater stress dial becomes the planting's dominantStressDial
+    invariant: false
+  - id: AC-5
+    given: two identical cucumber plantings (INSECT pollinationDependency), one with a marigold planted in an adjacent cell and one with no companion
+    when: both reach FRUITING and catch-up runs identical weather for both
+    then: the marigold-adjacent planting's fruitFraction grows faster than the isolated one, and its flowerFraction correspondingly lower (converted, not lost)
+    invariant: false
+  - id: AC-6
+    given: a pole-bean planted adjacent to a cell with a depleted nitrogen pool
+    when: catch-up runs
+    then: the neighboring cell's nitrogenPoolFraction is measurably higher than it would be without the pole-bean present, via ecology-service.ts's nitrogenTrickle
+    invariant: false
+  - id: AC-7
+    given: a bed selected for a what-if preview with a hypothetical fertilizer-equivalent condition override
+    when: previewConditionsAction runs the projection
+    then: no CellEnvironmentState or PlantingBiologyState row in the real database changes, matching NC-SPRIG-GROWTH2-NO-OVERWRITE-JOURNAL
+    invariant: true
+  - id: AC-8
+    given: a carrot planting (ROOT_CROP growth habit)
+    when: it is rendered in both the 2D and 3D viewers
+    then: it renders via the RootCrop archetype component, visually distinct from the existing three archetypes
+    invariant: false
+depends_on:
+  - SPEC-GROWTH-001
+  - SPEC-CONDITIONS-001
+constitution_rules: []

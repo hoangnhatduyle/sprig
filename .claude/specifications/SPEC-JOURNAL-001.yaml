@@ -1,0 +1,87 @@
+id: SPEC-JOURNAL-001
+version: 0.1.0
+kind: domain
+title: Garden Journal — activity feed, care-action history, freeform notes
+status: draft
+context_and_scope:
+  in_scope:
+    - "A read-only, chronological Garden Journal feed (getGardenJournal) merging seven durable source tables — GridCellEvent, HarvestRecord, CareActionEvent, BedConditionOverride, BedRenovation, DiseaseInfection, JournalNote — into one sorted, filterable, paginated view. This is the closes-the-loop feature for the previously-invisible history the app already recorded but never surfaced (GridCellEvent/HarvestRecord/BedConditionOverride/BedRenovation/DiseaseInfection all predate this spec)."
+    - "CareActionEvent: a new append-only table capturing every human care action (mulch, compost, fertilizer, weeding, fungicide, pesticide, predator release) that previously only mutated CellEnvironmentState/DiseaseInfection/PestPopulation/PredatorPopulation in place with no history at all."
+    - "JournalNote: a new append-only table for freeform user notes, optionally with one attached photo, optionally scoped to a bed and/or a specific cell — the one journal entry kind with its own dedicated write path rather than being a byproduct of an existing action."
+    - "A default/opt-in split for GERMINATED/GROWING GridCellEvent rows (system-driven, written only by catch-up-service.ts's daily auto-advance): excluded from the feed by default, surfaced via an explicit includeSystemLifecycleEvents flag, so the default feed stays a record of what a person did, not routine engine bookkeeping."
+    - "Photo storage for JournalNote (src/lib/journal-photos.ts, /api/journal-photos/[noteId]), generalizing the existing plant-images.ts pattern to a per-note (not per-Plant) resource."
+    - "A whole-garden Journal tab UI (JournalPanel), an always-visible needs-attention digest independent of journal data, and a Season Recap view built on top of getGardenJournal."
+  out_of_scope:
+    - "Editing or deleting a JournalNote once created — corrections are new rows (NC-SPRIG-JOURNAL-NOTE-APPEND-ONLY); an edit UI is a future extension, not this spec."
+    - "Retroactively backfilling CareActionEvent rows for care actions applied before this spec shipped — the journal is complete only from this point forward, matching how GridCellEvent itself has no pre-migration history either."
+    - "A dedicated actor/source column on GridCellEvent — the system-vs-user split for LIFECYCLE entries is a heuristic (event type membership in {GERMINATED, GROWING}), not a persisted field, to avoid a migration for what's currently a fully-deterministic distinction."
+    - "Cursor-based pagination — offset/limit is sufficient at this app's single-household SQLite scale."
+  external_dependencies: []
+  shared_schemas:
+    - "CareActionEvent { bedId, cellId?, actionType: MULCH|COMPOST|FERTILIZER|WEEDING|FUNGICIDE|PESTICIDE|PREDATOR_RELEASE, occurredAt, detail? } — append-only; cellId null for the two bed-scoped actions (PESTICIDE, PREDATOR_RELEASE)."
+    - "JournalNote { bedId?, cellId?, body?, photoFilename?, photoMimeType?, occurredAt } — append-only; at least one of body/photoFilename must be set."
+    - "JournalEntry (discriminated union on `kind`: LIFECYCLE|HARVEST|CARE_ACTION|EQUIPMENT|RENOVATION|DISEASE|NOTE) — the normalized shape getGardenJournal maps all seven source tables into."
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-JOURNAL-CARE-APPEND-ONLY
+    message: A CareActionEvent row MUST NOT be updated or deleted after creation — only prisma.careActionEvent.create is a valid repository call against this table, mirroring GridCellEvent's own create-only discipline.
+    severity: high
+  - id: NC-SPRIG-JOURNAL-NOTE-APPEND-ONLY
+    message: A JournalNote row MUST NOT be mutated in place after creation; a correction to a previously written note MUST be a new row, never an UPDATE.
+    severity: high
+  - id: NC-SPRIG-JOURNAL-NOTE-REQUIRES-CONTENT
+    message: createJournalNote MUST reject a note with neither body text nor a photo — an empty note is never persisted.
+    severity: medium
+  - id: NC-SPRIG-JOURNAL-CARE-ACTION-NEVER-BLOCKS-STATE-WRITE
+    message: A CareActionEvent write MUST happen alongside (in the same transaction as, where the underlying action is a single update) its action's existing CellEnvironmentState/DiseaseInfection/PestPopulation/PredatorPopulation mutation, never as a replacement for it — the journal is additive, not a migration of the current-state model.
+    severity: high
+acceptance_criteria:
+  - id: AC-1
+    given: a garden with rows across GridCellEvent, HarvestRecord, CareActionEvent, BedConditionOverride, BedRenovation, DiseaseInfection, and JournalNote
+    when: getGardenJournal is called with no filters
+    then: entries from all seven sources are merged into one feed sorted newest-first by occurredAt
+    invariant: true
+  - id: AC-2
+    given: a cell whose GridCellEvent history includes both user-triggered rows (PLANTED, HARVESTED, REMOVED) and system-driven rows (GERMINATED, GROWING)
+    when: getGardenJournal is called with the default options
+    then: GERMINATED/GROWING rows are excluded from the feed; they appear only when includeSystemLifecycleEvents is explicitly true
+    invariant: true
+  - id: AC-3
+    given: a bed with a SHADE_CLOTH BedConditionOverride that is later removed
+    when: getGardenJournal is called
+    then: two EQUIPMENT entries are produced — one "installed" (at installedAt) and one "removed" (at removedAt) — not one entry mutated in place
+    invariant: true
+  - id: AC-4
+    given: an active DiseaseInfection episode that is later resolved
+    when: getGardenJournal is called
+    then: two DISEASE entries are produced — "started" and "resolved" — the same dual-entry pattern as EQUIPMENT
+    invariant: true
+  - id: AC-5
+    given: any of applyMulchToCell, applyCompostToCell, applyFertilizerToCell, applyWeedingToCell, applyFungicideToCell, applyPesticideToBed, or releasePredatorsToBed is called
+    when: the action completes successfully
+    then: a CareActionEvent row is created with the matching actionType, in addition to the action's existing current-state mutation
+    invariant: true
+  - id: AC-6
+    given: a createJournalNote call with neither body nor a photo filename
+    then: it is rejected with JournalValidationError before any row is written
+    invariant: true
+  - id: AC-7
+    given: a createJournalNote call with cell coordinates (column/row) but no bedId
+    then: it is rejected with JournalValidationError — a cell-scoped note requires knowing which bed the cell belongs to
+    invariant: true
+  - id: AC-8
+    given: a getGardenJournal call filtered by bedId
+    then: only entries belonging to that bed are returned, across every source kind
+    invariant: true
+  - id: AC-9
+    given: a getGardenJournal call filtered by plantId
+    then: only plant-associated kinds (LIFECYCLE, HARVEST, DISEASE) are considered; CARE_ACTION/EQUIPMENT/RENOVATION/NOTE entries are excluded since they have no plant association
+    invariant: true
+  - id: AC-10
+    given: a getGardenJournal call with limit N and more than N matching entries exist
+    then: exactly N entries are returned and hasMore is true; requesting the remaining offset returns the rest with hasMore false
+    invariant: true
+depends_on:
+  - SPEC-GRID-001
+  - SPEC-GROWTH-003
+constitution_rules: []

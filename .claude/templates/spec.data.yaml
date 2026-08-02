@@ -1,0 +1,46 @@
+# Data spec template (kind: data). Schemas, contracts, and data invariants.
+id: SPEC-BILLING-001
+version: 0.1.0
+kind: data
+title: Monthly billing record schema
+status: draft
+
+context_and_scope:
+  in_scope:
+    - billing_records table schema
+    - Money typing rules
+  out_of_scope:
+    - Reporting/aggregation views
+  external_dependencies: []
+  shared_schemas:
+    - "billing_records { id, tenant_id, amount NUMERIC(12,2), period DATE, created_at }"
+
+# Data lifecycle (e.g. record status) as a state machine where relevant.
+state_machines:
+  - name: billing_record
+    states: [PENDING, ISSUED, PAID, VOID]
+    initial: PENDING
+    transitions:
+      - { from: PENDING, event: issue, to: ISSUED }
+      - { from: ISSUED, event: pay, to: PAID }
+      - { from: ISSUED, event: void, to: VOID }
+    forbidden:
+      - { from: PAID, to: VOID, reason: "A paid record cannot be voided; issue a refund" }
+
+negative_constraints:
+  - id: NC-BILL-DECIMAL-MONEY
+    message: Monetary fields MUST use decimal/NUMERIC, never floating point.
+    severity: high
+  - id: NC-BILL-TENANT-SCOPED
+    message: Every query MUST be scoped to a tenant_id; no cross-tenant reads.
+    severity: critical
+
+acceptance_criteria:
+  - id: AC-1
+    given: a billing amount of 500.00
+    when: stored and re-read
+    then: the value equals 500.00 exactly (no float drift)
+    invariant: true
+
+depends_on: []
+constitution_rules: []

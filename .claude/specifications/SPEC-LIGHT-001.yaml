@@ -1,0 +1,110 @@
+id: SPEC-LIGHT-001
+version: 0.1.0
+kind: domain
+title: Day/Night Cycle & Solar Lighting
+status: draft
+context_and_scope:
+  in_scope:
+    - A simulated time-of-day control, anchored to the garden's real GardenLocation, that drives natural light/shadow — baked/interpolated from the captured sun/shadow study (p.5-8, p.26) for must-have.
+    - DAWN/DAY/DUSK/NIGHT phase transitions timed to real, location-computed sunrise/sunset for the garden's actual position, not an arbitrary fixed clock hour.
+    - The garden-bed solar string lights on the trellis (p.17, p.18, p.27), which charge by day and switch on (ILLUMINATED) at real dusk, off at real dawn, mirroring real solar-lamp behavior.
+  out_of_scope:
+    - Computed real-time shadows from actual 3D blockout geometry of the tree/garage/deck (near-term follow-on immediately after must-have, not part of this spec's must-have).
+    - The separately-powered, non-solar 'Smart String Light' near the garden entrance/deck — a distinct lighting system, not covered here.
+    - Real weather/cloud data affecting light levels (a distinct, still-deferred phase-two weather dependency).
+  external_dependencies:
+    - A free/keyless real sunrise/sunset (sun-position) data source for the garden's real GardenLocation — provider undecided; a pure astronomical calculation given lat/long/date needs no network call, a free API is an alternative. This is the only external data dependency for must-have.
+  shared_schemas:
+    - GardenLocation { latitude, longitude } — the real-world position used to compute sunrise/sunset; provided as configuration, not user-facing garden data.
+    - "DayNightCycle { simulated_time, phase: DAWN|DAY|DUSK|NIGHT, sunrise_at, sunset_at }"
+    - "SolarLight { id, trellis_or_bed_id, charge_level, status: CHARGING|READY|ILLUMINATED|DEPLETED } — distinct from the separate, non-solar 'Smart String Light' near the garden entrance/deck (likely app or mains-powered); two different lighting systems, not variants of one."
+state_machines:
+  - name: Day/night cycle
+    states:
+      - DAWN
+      - DAY
+      - DUSK
+      - NIGHT
+    initial: DAY
+    transitions:
+      - from: DAWN
+        event: sunrise_complete
+        to: DAY
+      - from: DAY
+        event: sunset_begins
+        to: DUSK
+      - from: DUSK
+        event: dark_falls
+        to: NIGHT
+      - from: NIGHT
+        event: sunrise_begins
+        to: DAWN
+    forbidden:
+      - from: DAY
+        to: NIGHT
+        reason: Must pass through DUSK; jumping straight from DAY to NIGHT breaks the gradual lighting transition that sells the day/night cycle
+      - from: NIGHT
+        to: DAY
+        reason: Must pass through DAWN for the same reason
+  - name: Solar light lifecycle
+    states:
+      - CHARGING
+      - READY
+      - ILLUMINATED
+      - DEPLETED
+    initial: CHARGING
+    transitions:
+      - from: CHARGING
+        event: charge_sufficient
+        to: READY
+      - from: READY
+        event: dusk_falls
+        to: ILLUMINATED
+      - from: ILLUMINATED
+        event: dawn_breaks
+        to: CHARGING
+      - from: ILLUMINATED
+        event: charge_depleted
+        to: DEPLETED
+      - from: DEPLETED
+        event: dawn_breaks
+        to: CHARGING
+    forbidden:
+      - from: DEPLETED
+        to: ILLUMINATED
+        reason: A depleted light must recharge through a full day before it can illuminate again, not skip straight back on
+      - from: CHARGING
+        to: ILLUMINATED
+        reason: A light must reach READY (sufficient charge) before dusk can turn it on
+negative_constraints:
+  - id: NC-SPRIG-SOLAR-LIGHTS-NIGHT-ONLY
+    message: Solar string lights MUST NOT render as illuminated during DAY or DAWN; they may only be ILLUMINATED during DUSK/NIGHT and only if sufficiently charged, mirroring real solar-lamp behavior.
+    severity: medium
+  - id: NC-SPRIG-LIGHT-FOLLOWS-TIME
+    message: Natural light and shadow in the 3D scene MUST derive from the simulated time-of-day (baked/interpolated from the captured sun/shadow study for must-have), not from an arbitrary brightness value decoupled from time.
+    severity: medium
+  - id: NC-SPRIG-DUSK-FROM-REAL-LOCATION
+    message: DAWN/DAY/DUSK/NIGHT phase transitions and the solar-light trigger MUST be timed to real, location-computed sunrise/sunset for the garden's actual GardenLocation, not an arbitrary fixed clock hour.
+    severity: medium
+  - id: NC-SPRIG-NO-WEATHER-API-IN-MUST-HAVE
+    message: The must-have build MUST NOT depend on a live weather/rain/cloud data source; only real sunrise/sunset (sun-position) data is an in-scope external dependency.
+    severity: low
+acceptance_criteria:
+  - id: AC-5
+    given: the captured sun/shadow study (docs/Exterior Design.pdf p.5-8, p.26)
+    when: the simulation clock advances through a simulated day
+    then: each cell's light exposure follows the captured real shadow pattern for that time of day rather than a generic/uniform sun model
+    invariant: false
+  - id: AC-8
+    given: the simulated time-of-day control set to a daytime hour, before real computed sunset for the garden's GardenLocation
+    when: viewing the 3D scene
+    then: natural light/shadow matches the baked/interpolated sun study for that hour, and the garden-bed solar string lights render as CHARGING/READY (not illuminated)
+    invariant: false
+  - id: AC-9
+    given: the simulated time-of-day control advanced past real computed sunset for the garden's GardenLocation
+    when: viewing the 3D scene
+    then: the DayNightCycle transitions through DUSK into NIGHT, the overall scene lighting shifts to a night look, and the garden-bed solar string lights render as ILLUMINATED (glowing)
+    invariant: false
+depends_on:
+  - SPEC-GRID-001
+constitution_rules: []

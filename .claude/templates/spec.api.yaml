@@ -1,0 +1,58 @@
+# API spec template (kind: api). Models an HTTP/RPC surface and its lifecycle.
+# Copy, fill, and validate with `validate_spec`. Code is a downstream byproduct of this.
+id: SPEC-PAYMENT-001
+version: 0.1.0
+kind: api
+title: Payment authorization & settlement API
+status: draft
+
+context_and_scope:
+  in_scope:
+    - POST /payments/authorize
+    - POST /payments/{id}/settle
+    - POST /payments/{id}/refund
+  out_of_scope:
+    - Fraud scoring (separate spec)
+    - Payout/ledger reconciliation
+  external_dependencies:
+    - Stripe PaymentIntents API
+  shared_schemas:
+    - Money { amount: integer (minor units), currency: ISO-4217 }
+
+# Deterministic state machine. Invalid transitions are explicitly forbidden so the
+# spec — not the code — is the authority on what may happen.
+state_machines:
+  - name: payment
+    states: [AUTHORIZED, SETTLED, REFUNDED, VOIDED]
+    initial: AUTHORIZED
+    transitions:
+      - { from: AUTHORIZED, event: settle, to: SETTLED }
+      - { from: AUTHORIZED, event: void, to: VOIDED }
+      - { from: SETTLED, event: refund, to: REFUNDED }
+    forbidden:
+      - { from: AUTHORIZED, to: REFUNDED, reason: "Cannot refund what was never settled" }
+
+# "Thou Shalt Not" laws. A matched critical constraint blocks at the governance gate.
+negative_constraints:
+  - id: NC-PAY-NO-DOUBLE-SETTLE
+    message: A payment MUST NOT be settled more than once.
+    severity: critical
+  - id: NC-PAY-AMOUNT-IMMUTABLE
+    message: The authorized amount MUST NOT change after authorization.
+    severity: high
+
+# Executable assertions — parsed by generate_tests to build the RED gate.
+acceptance_criteria:
+  - id: AC-1
+    given: an AUTHORIZED payment
+    when: settle is called once
+    then: state becomes SETTLED and the captured amount equals the authorized amount
+    invariant: true
+  - id: AC-2
+    given: an AUTHORIZED payment
+    when: refund is called
+    then: the request is rejected (forbidden transition AUTHORIZED->REFUNDED)
+    invariant: true
+
+depends_on: []
+constitution_rules: [NC-SECRETS, NC-SQL-CONCAT]

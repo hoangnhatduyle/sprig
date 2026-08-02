@@ -1,0 +1,93 @@
+id: SPEC-GRID-001
+version: 0.1.0
+kind: domain
+title: Garden Bed & Grid Cell Domain
+status: draft
+context_and_scope:
+  in_scope:
+    - "Digital capture of both raised garden beds: grid geometry (4 cols x 8 rows per bed, per docs/Exterior Design.pdf p.1/p.11/p.12/p.15), per-cell plant assignment, planting dates, bed dimensions, and reference photos (p.16, p.17)."
+    - A plant catalog sufficient to assign a plant/fruit to a grid cell, seeded from the brainstorm list (p.3) and the real journal (p.15).
+    - "Companion planting: a single grid cell may hold multiple simultaneous plant assignments (e.g. Tomato + Basil), not just one."
+    - The structural west-to-east baseline light gradient documented in the source (row A/west = partial shade, row H/east = full sun), layered under the hourly sun study and live time-of-day simulation owned by the LIGHT spec, not replaced by them.
+  out_of_scope:
+    - 3D rendering, camera, and viewer behavior for the beds/cells (owned by the VIEWER spec).
+    - Real weather/rain/cloud data and CO2/moisture simulation.
+    - Full 3D modeling of the rest of the backyard beyond the two beds' grid data.
+    - Multi-garden or multi-household data model.
+    - Live hardware sensors (real soil moisture probes).
+  external_dependencies: []
+  shared_schemas:
+    - "Bed { id, name, width_ft: 4, length_ft: 8, grid_cols, grid_rows, compass_position: SOUTH|NORTH } — Bed 1 (cols 1-4) = SOUTH, Bed 2 (cols 5-8) = NORTH; each bed 4ft x 8ft, wood-framed (confirmed p.18/19/24/28); total twin-bed footprint including paths = 15ft wide."
+    - "GridCell { bed_id, column, row, plant_ids: [], planted_at, status, baseline_light: PARTIAL_SHADE|FULL_SUN } — plant_ids is a LIST, not a single plant, because companion planting is real and documented throughout the source; baseline_light is the structural west-to-east gradient (row A/west = partial shade, row H/east = full sun)."
+    - "Plant { id, common_name, species, water_need, light_need, is_companion_planting: bool, notes }"
+state_machines:
+  - name: Grid cell planting lifecycle
+    states:
+      - EMPTY
+      - PLANTED
+      - GERMINATED
+      - GROWING
+      - HARVESTED
+      - REMOVED
+    initial: EMPTY
+    transitions:
+      - from: EMPTY
+        event: assign_plant
+        to: PLANTED
+      - from: PLANTED
+        event: germinate
+        to: GERMINATED
+      - from: GERMINATED
+        event: grow
+        to: GROWING
+      - from: GROWING
+        event: harvest
+        to: HARVESTED
+      - from: HARVESTED
+        event: clear
+        to: REMOVED
+      - from: PLANTED
+        event: remove
+        to: REMOVED
+      - from: GERMINATED
+        event: remove
+        to: REMOVED
+      - from: GROWING
+        event: remove
+        to: REMOVED
+      - from: REMOVED
+        event: assign_plant
+        to: PLANTED
+    forbidden:
+      - from: HARVESTED
+        to: GROWING
+        reason: A harvested plant cannot un-harvest; remove and replant a new cycle instead
+      - from: EMPTY
+        to: GERMINATED
+        reason: A cell must be explicitly planted before it can germinate
+negative_constraints:
+  - id: NC-SPRIG-NO-OVERWRITE-JOURNAL
+    message: A simulation run MUST NOT overwrite or mutate the real garden journal history (actual planting/harvest/watering records captured from docs/Exterior Design.pdf p.15 and ongoing real observation).
+    severity: critical
+  - id: NC-SPRIG-GRID-IMMUTABLE-GEOMETRY
+    message: The bed grid dimensions (4 columns x 8 rows per bed) MUST NOT be silently resized by any feature; a physical bed change requires an explicit, dated 'bed renovation' record.
+    severity: high
+  - id: NC-SPRIG-NO-SILENT-PLANT-CHANGE
+    message: A grid cell's plant assignment MUST NOT change without recording a dated event (planted/removed/harvested); no silent overwrites of prior assignments.
+    severity: high
+  - id: NC-SPRIG-NO-CROSS-HOUSEHOLD
+    message: The system MUST NOT expose one household's garden data to another; this project is explicitly single-household scoped and must not assume shared/public data by default.
+    severity: medium
+acceptance_criteria:
+  - id: AC-1
+    given: the two garden beds as captured from docs/Exterior Design.pdf
+    when: a user opens the 3D digital garden view
+    then: both beds render in 3D on the ground plane with the correct grid dimensions (4x8 each), and every cell shows its actual assigned plant (stylized/low-poly), or explicitly empty, matching the reconciled garden journal
+    invariant: false
+  - id: AC-2
+    given: a grid cell in any lifecycle state except HARVESTED-then-immediately-regrown
+    when: the user assigns a different plant from the catalog
+    then: the cell's plant assignment updates and a dated planting event is recorded, without erasing the prior event's history
+    invariant: true
+depends_on: []
+constitution_rules: []

@@ -1,0 +1,38 @@
+spec_id: SPEC-VIEWER-001
+generated_at: 2026-07-28T14:00:31.246Z
+cases:
+  - id: T-SPEC-VIEWER-001-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-VIEWER-001#AC-3
+    assertion: given the 3D viewer in SIMULATION mode, when the user waters a cell or moves the simulated time-of-day control, then the affected cell's soil/lighting updates live in the same view, the real garden journal data is left unmodified, and the viewer clearly indicates SIMULATION mode rather than REAL
+    invariant: true
+  - id: T-SPEC-VIEWER-001-AC-AC_6
+    kind: acceptance
+    traces_to: SPEC-VIEWER-001#AC-6
+    assertion: given the 3D viewer showing the garden beds, when the user drags to rotate or scrolls/pinches to zoom, then the orbit camera rotates and zooms smoothly while staying bounded to the garden scene, never navigating to empty/undefined space
+    invariant: false
+  - id: T-SPEC-VIEWER-001-AC-AC_7
+    kind: acceptance
+    traces_to: SPEC-VIEWER-001#AC-7
+    assertion: given the REAL view mode is active, when the user exits a simulation run, then the viewer transitions back to REAL and shows the actual current garden state, with no leftover SIMULATION-mode visual artifacts
+    invariant: true
+  - id: T-SPEC-VIEWER-001-FORBID-Simulation_run_COMPLETED_RUNNING
+    kind: forbidden-transition
+    traces_to: SPEC-VIEWER-001#Simulation run:COMPLETED->RUNNING
+    assertion: "[Simulation run] transition COMPLETED -> RUNNING MUST be rejected (A completed simulation run must be re-configured as a new run, not resumed)"
+    invariant: true
+  - id: T-SPEC-VIEWER-001-FORBID-3D_viewer_mode_SIMULATION_SIMULATION
+    kind: forbidden-transition
+    traces_to: SPEC-VIEWER-001#3D viewer mode:SIMULATION->SIMULATION
+    assertion: "[3D viewer mode] transition SIMULATION -> SIMULATION MUST be rejected (Switching between simulation runs must pass through REAL (or an explicit run-switch event), never silently swap the active run's data in place)"
+    invariant: true
+  - id: T-SPEC-VIEWER-001-NC-NC_SPRIG_SIM_VS_REAL_VISUAL_DISTINCTION
+    kind: negative-constraint
+    traces_to: SPEC-VIEWER-001#NC-SPRIG-SIM-VS-REAL-VISUAL-DISTINCTION
+    assertion: The 3D viewer MUST NOT render a hypothetical SIMULATION view indistinguishably from the REAL garden state view; there must always be a clear, visible indicator of which mode is active.
+    invariant: true
+  - id: T-SPEC-VIEWER-001-NC-NC_SPRIG_NO_OVERWRITE_JOURNAL
+    kind: negative-constraint
+    traces_to: SPEC-VIEWER-001#NC-SPRIG-NO-OVERWRITE-JOURNAL
+    assertion: A simulation run MUST NOT overwrite or mutate the real garden journal history (actual planting/harvest/watering records); exiting SIMULATION mode must restore REAL state exactly, never leave simulation writes behind.
+    invariant: true

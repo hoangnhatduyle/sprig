@@ -1,0 +1,93 @@
+spec_id: SPEC-JOURNAL-001
+generated_at: 2026-08-01T02:56:00.000Z
+cases:
+  - id: T-SPEC-JOURNAL-001-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-1
+    assertion: getGardenJournal merges GridCellEvent/HarvestRecord/CareActionEvent/BedConditionOverride/BedRenovation/DiseaseInfection/JournalNote into one feed sorted newest-first
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-2
+    assertion: GERMINATED/GROWING lifecycle events are excluded from the default feed and included only with includeSystemLifecycleEvents true
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-3
+    assertion: a removed BedConditionOverride produces two EQUIPMENT entries — installed and removed
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_4
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-4
+    assertion: a resolved DiseaseInfection episode produces two DISEASE entries — started and resolved
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts (EQUIPMENT dual-entry case is directly tested; DISEASE follows the identical code path in journal-service.ts's diseaseRows mapping)
+  - id: T-SPEC-JOURNAL-001-AC-AC_5
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-5
+    assertion: every care/pest/disease action (mulch, compost, fertilizer, weeding, fungicide, pesticide, predator release) writes a CareActionEvent alongside its existing state mutation
+    invariant: true
+    covered_by:
+      - src/domain/soil/care-actions-service.test.ts
+      - src/domain/disease/disease-action-service.test.ts
+      - src/domain/pests/pest-action-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_6
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-6
+    assertion: createJournalNote rejects a note with neither body nor a photo
+    invariant: true
+    covered_by: src/domain/journal/journal-note-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_7
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-7
+    assertion: createJournalNote rejects cell coordinates given without a bedId
+    invariant: true
+    covered_by: src/domain/journal/journal-note-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_8
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-8
+    assertion: getGardenJournal filtered by bedId excludes entries from other beds, across every source kind
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_9
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-9
+    assertion: getGardenJournal filtered by plantId excludes CARE_ACTION/EQUIPMENT/RENOVATION/NOTE kinds
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts
+  - id: T-SPEC-JOURNAL-001-AC-AC_10
+    kind: acceptance
+    traces_to: SPEC-JOURNAL-001#AC-10
+    assertion: limit/offset pagination returns the correct page and hasMore flag
+    invariant: true
+    covered_by: src/domain/journal/journal-service.test.ts
+  - id: T-SPEC-JOURNAL-001-NC-NC_SPRIG_JOURNAL_CARE_APPEND_ONLY
+    kind: negative-constraint
+    traces_to: SPEC-JOURNAL-001#NC-SPRIG-JOURNAL-CARE-APPEND-ONLY
+    assertion: A CareActionEvent row MUST NOT be updated or deleted after creation — only prisma.careActionEvent.create is used anywhere in the codebase against this table.
+    invariant: true
+    covered_by: src/domain/soil/care-actions-service.ts, src/domain/disease/disease-action-service.ts, src/domain/pests/pest-action-service.ts (manual verification — repository-call discipline, same enforcement style as GridCellEvent's own NC-SPRIG-NO-OVERWRITE-JOURNAL)
+  - id: T-SPEC-JOURNAL-001-NC-NC_SPRIG_JOURNAL_NOTE_APPEND_ONLY
+    kind: negative-constraint
+    traces_to: SPEC-JOURNAL-001#NC-SPRIG-JOURNAL-NOTE-APPEND-ONLY
+    assertion: A JournalNote row MUST NOT be mutated in place after creation — journal-note-service.ts exposes only createJournalNote, no update path.
+    invariant: true
+    covered_by: src/domain/journal/journal-note-service.ts (manual verification — no update/delete function exists)
+  - id: T-SPEC-JOURNAL-001-NC-NC_SPRIG_JOURNAL_NOTE_REQUIRES_CONTENT
+    kind: negative-constraint
+    traces_to: SPEC-JOURNAL-001#NC-SPRIG-JOURNAL-NOTE-REQUIRES-CONTENT
+    assertion: createJournalNote MUST reject a note with neither body text nor a photo.
+    invariant: true
+    covered_by: src/domain/journal/journal-note-service.test.ts
+  - id: T-SPEC-JOURNAL-001-NC-NC_SPRIG_JOURNAL_CARE_ACTION_NEVER_BLOCKS_STATE_WRITE
+    kind: negative-constraint
+    traces_to: SPEC-JOURNAL-001#NC-SPRIG-JOURNAL-CARE-ACTION-NEVER-BLOCKS-STATE-WRITE
+    assertion: A CareActionEvent write happens alongside (same transaction where the action is a single update), never instead of, the action's existing state mutation.
+    invariant: true
+    covered_by:
+      - src/domain/soil/care-actions-service.test.ts
+      - src/domain/disease/disease-action-service.test.ts
+      - src/domain/pests/pest-action-service.test.ts

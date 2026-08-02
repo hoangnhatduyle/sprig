@@ -1,0 +1,38 @@
+spec_id: SPEC-LIGHT-001
+generated_at: 2026-07-27T21:04:57.519Z
+cases:
+  - id: T-SPEC-LIGHT-001-AC-AC_5
+    kind: acceptance
+    traces_to: SPEC-LIGHT-001#AC-5
+    assertion: given the captured sun/shadow study (docs/Exterior Design.pdf p.5-8, p.26), when the simulation clock advances through a simulated day, then each cell's light exposure follows the captured real shadow pattern for that time of day rather than a generic/uniform sun model
+    invariant: false
+  - id: T-SPEC-LIGHT-001-AC-AC_8
+    kind: acceptance
+    traces_to: SPEC-LIGHT-001#AC-8
+    assertion: given the simulated time-of-day control set to a daytime hour, before real computed sunset for the garden's GardenLocation, when viewing the 3D scene, then natural light/shadow matches the baked/interpolated sun study for that hour, and the garden-bed solar string lights render as CHARGING/READY (not illuminated)
+    invariant: false
+  - id: T-SPEC-LIGHT-001-AC-AC_9
+    kind: acceptance
+    traces_to: SPEC-LIGHT-001#AC-9
+    assertion: given the simulated time-of-day control advanced past real computed sunset for the garden's GardenLocation, when viewing the 3D scene, then the DayNightCycle transitions through DUSK into NIGHT, the overall scene lighting shifts to a night look, and the garden-bed solar string lights render as ILLUMINATED (glowing)
+    invariant: false
+  - id: T-SPEC-LIGHT-001-FORBID-Day_night_cycle_DAY_NIGHT
+    kind: forbidden-transition
+    traces_to: SPEC-LIGHT-001#Day/night cycle:DAY->NIGHT
+    assertion: "[Day/night cycle] transition DAY -> NIGHT MUST be rejected (Must pass through DUSK; jumping straight from DAY to NIGHT breaks the gradual lighting transition that sells the day/night cycle)"
+    invariant: true
+  - id: T-SPEC-LIGHT-001-FORBID-Day_night_cycle_NIGHT_DAY
+    kind: forbidden-transition
+    traces_to: SPEC-LIGHT-001#Day/night cycle:NIGHT->DAY
+    assertion: "[Day/night cycle] transition NIGHT -> DAY MUST be rejected (Must pass through DAWN for the same reason)"
+    invariant: true
+  - id: T-SPEC-LIGHT-001-FORBID-Solar_light_lifecycle_DEPLETED_ILLUMINATED
+    kind: forbidden-transition
+    traces_to: SPEC-LIGHT-001#Solar light lifecycle:DEPLETED->ILLUMINATED
+    assertion: "[Solar light lifecycle] transition DEPLETED -> ILLUMINATED MUST be rejected (A depleted light must recharge through a full day before it can illuminate again, not skip straight back on)"
+    invariant: true
+  - id: T-SPEC-LIGHT-001-FORBID-Solar_light_lifecycle_CHARGING_ILLUMINATED
+    kind: forbidden-transition
+    traces_to: SPEC-LIGHT-001#Solar light lifecycle:CHARGING->ILLUMINATED
+    assertion: "[Solar light lifecycle] transition CHARGING -> ILLUMINATED MUST be rejected (A light must reach READY (sufficient charge) before dusk can turn it on)"
+    invariant: true

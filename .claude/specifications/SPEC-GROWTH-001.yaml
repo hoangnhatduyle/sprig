@@ -1,0 +1,137 @@
+id: SPEC-GROWTH-001
+version: 0.1.0
+kind: domain
+title: Time-Driven Plant Growth Engine (Phase 1)
+status: draft
+context_and_scope:
+  in_scope:
+    - "A real, persisted growth engine: species-differentiated biomass (leaf/stem/root/flower/fruit fractions), phenology stage, and stress driven by accumulated Growing Degree Days and daily weather — computed once per elapsed simulated day, never by a background worker."
+    - "An accelerated simulated clock (SimClockEpoch): current simulated time is always derived as simAnchorAt + (now - realAnchorAt) * rate from the latest append-only epoch row, with no process advancing it in the background."
+    - "Cached daily weather (WeatherDay) from a swappable source: a deterministic seeded procedural generator (default), or a real Open-Meteo lookup with automatic fallback to procedural when the real source can't answer for a given date."
+    - "A minimal per-bed/per-cell soil model: a single-bucket soil moisture fraction (rain in, ET out, drainage) and a slowly-lagging soil temperature, texture-derived field capacity/wilting point."
+    - "A data-driven SpeciesProfile catalog: a new species requires only a new config row (or the keyword-heuristic fallback archetype), never new growth-engine code."
+    - "A procedural, species-differentiated 3D plant visual (growth habit: upright bush / vining / rosette-leafy) driven continuously by live biomass fractions, replacing the prior CellStatus-only height/color lookup."
+    - "CellStatus (SPEC-GRID-001) kept as a derived, backward-compatible projection of phenology stage — germinate/grow transitions now happen automatically via the existing tested FSM functions, not via user clicks."
+  out_of_scope:
+    - "Nutrient pools (N/P/K/Ca), fertilizing, mulching, composting, companion-planting effects, pollination — deferred to Phase 2."
+    - "Disease and pest population simulation — deferred to Phase 3."
+    - "Overwatering, shade, transplant-shock, and wind stress dials — deferred alongside nutrient stress in Phase 2; Phase 1 ships heat/cold/drought only."
+    - "The manual/persistent 'conditions override' equipment system (shade cloth, grow light, rain cover) and the multi-day what-if projection extending SimulationRun — both designed as a Phase 1.5 addendum, not built here."
+    - "Real regional precipitation seasonality (a ClimateZone config with monthly normals/frost dates) — the procedural weather provider uses a latitude-only sinusoidal approximation for Phase 1."
+    - "A UI control for switching a garden's weather source between procedural and real — the RealWeatherProvider exists and is tested, but Phase 1 always calls catch-up with PROCEDURAL as the default preference."
+  external_dependencies:
+    - "Open-Meteo (https://open-meteo.com) — free, keyless, lat/long-based historical + forecast weather. Used only when a caller explicitly requests REAL_API; PROCEDURAL is the default and has no external dependency."
+  shared_schemas:
+    - "SpeciesProfile { key, displayName, growthHabit, baseTempC, gddToGerminate, gddToVegetative, gddToFlowering, gddToFruiting, gddToMaturity, heatStressThresholdC, coldStressThresholdC, droughtComfortFraction, matureHeightCm, canopyWidthCm, primaryColor, isFallbackDefault } — the data-driven species config; Plant.speciesProfileId references it."
+    - "SimClockEpoch { realAnchorAt, simAnchorAt, rate } — append-only; current sim time is always derived from the latest row, never advanced by a background process."
+    - "WeatherDay { date, tempHighC, tempLowC, precipitationMm, cloudCoverPct, humidityPct, windSpeedKph, condition, source } — one row per simulated calendar day, unique on date, never regenerated once cached."
+    - "SoilProfile { bedId, sandPct, siltPct, clayPct, fieldCapacityFraction, wiltingPointFraction } — one per Bed."
+    - "CellEnvironmentState { cellId, soilMoistureFraction, soilTempC, updatedThroughDate } — latest-computed per-cell soil state, advanced incrementally, not derived fresh on read."
+    - "PlantingBiologyState { cellPlantingId, accumulatedGdd, phenologyStage, leafFraction, stemFraction, rootFraction, flowerFraction, fruitFraction, storedReserves, waterContentIndex, cumulativeStress, updatedThroughDate } — the growth engine's core persisted state, one row per CellPlanting."
+state_machines:
+  - name: Phenology stage
+    states:
+      - GERMINATING
+      - VEGETATIVE
+      - FLOWERING
+      - FRUITING
+      - MATURE
+      - SENESCENT
+      - DEAD
+    initial: GERMINATING
+    transitions:
+      - from: GERMINATING
+        event: gdd_crosses_vegetative_threshold
+        to: VEGETATIVE
+      - from: VEGETATIVE
+        event: gdd_crosses_flowering_threshold
+        to: FLOWERING
+      - from: FLOWERING
+        event: gdd_crosses_fruiting_threshold
+        to: FRUITING
+      - from: FRUITING
+        event: gdd_crosses_maturity_threshold
+        to: MATURE
+      - from: GERMINATING
+        event: reserves_exhausted_under_sustained_stress
+        to: DEAD
+      - from: VEGETATIVE
+        event: reserves_exhausted_under_sustained_stress
+        to: DEAD
+      - from: FLOWERING
+        event: reserves_exhausted_under_sustained_stress
+        to: DEAD
+      - from: FRUITING
+        event: reserves_exhausted_under_sustained_stress
+        to: DEAD
+      - from: MATURE
+        event: reserves_exhausted_under_sustained_stress
+        to: DEAD
+    forbidden:
+      - from: DEAD
+        to: VEGETATIVE
+        reason: DEAD is terminal for the daily step; only a human clear/remove action (SPEC-GRID-001) retires a dead planting, nothing in the growth engine revives it.
+      - from: MATURE
+        to: GERMINATING
+        reason: accumulatedGdd only ever increases, and stage is a monotonic function of it — the daily step cannot move a planting backward through phenology.
+negative_constraints:
+  - id: NC-SPRIG-GROWTH-NO-BACKGROUND-WORKER
+    message: Simulated time and growth state MUST NOT depend on any long-running background process (cron, worker, interval); both the sim clock and biomass state MUST be computable/advanceable entirely within a single request (derive-on-read for the clock, bounded catch-up for biomass), matching the Next.js server-actions + SQLite architecture.
+    severity: high
+  - id: NC-SPRIG-GROWTH-BOUNDED-CATCHUP
+    message: A single catch-up call MUST NOT process more than a fixed cap of simulated days (MAX_CATCH_UP_DAYS); reaching the cap MUST stop cleanly and report how far it got, never freeze the request or silently drop remaining days without a way to resume.
+    severity: medium
+  - id: NC-SPRIG-GROWTH-NO-HISTORY-REWRITE
+    message: An existing WeatherDay row for a given date MUST NEVER be regenerated, refetched, or overwritten once cached, regardless of which WeatherSource is currently preferred — switching sources only affects days generated after the switch.
+    severity: medium
+  - id: NC-SPRIG-GROWTH-CELLSTATUS-FORWARD-ONLY
+    message: The growth engine's automatic CellStatus projection (PLANTED/GERMINATED/GROWING) MUST only move a cell forward through the existing SPEC-GRID-001 lifecycle FSM, and MUST NEVER touch a cell in HARVESTED or REMOVED status.
+    severity: high
+  - id: NC-SPRIG-GROWTH-SPECIES-FALLBACK-REQUIRED
+    message: Every Plant MUST resolve to some SpeciesProfile (a matched species or the fallback archetype) before growth catch-up runs for it; the growth engine MUST NEVER throw for an unrecognized species name.
+    severity: medium
+acceptance_criteria:
+  - id: AC-1
+    given: a freshly planted cell with no PlantingBiologyState yet
+    when: growth catch-up runs for the first time
+    then: a PlantingBiologyState row is created and its phenology stage is GERMINATING with near-zero accumulated GDD
+    invariant: false
+  - id: AC-2
+    given: a planting whose accumulated GDD has just crossed its species' gddToVegetative threshold during catch-up
+    when: catch-up finishes
+    then: phenologyStage reads VEGETATIVE and the cell's CellStatus has automatically advanced to GERMINATED or GROWING via the existing SPEC-GRID-001 FSM functions, with a GridCellEvent recorded
+    invariant: false
+  - id: AC-3
+    given: two identical plantings of the same species, one exposed to a week of hot weather and one to a week of cold weather
+    when: catch-up runs for both
+    then: their accumulated GDD, biomass fractions, and stress dials diverge, demonstrating that weather visibly affects growth rate
+    invariant: false
+  - id: AC-4
+    given: a planting whose stored reserves are fully drawn down while cumulative stress is pinned above its threshold for several consecutive simulated days
+    when: catch-up runs across that whole span
+    then: the planting's phenologyStage becomes DEAD and never advances again on subsequent catch-up calls
+    invariant: false
+  - id: AC-5
+    given: a garden left unopened for longer than MAX_CATCH_UP_DAYS of accelerated simulated time
+    when: growth catch-up next runs
+    then: it processes no more than MAX_CATCH_UP_DAYS simulated days in that call and reports a non-null cappedAt, rather than processing an unbounded number of days in one request
+    invariant: true
+  - id: AC-6
+    given: a WeatherDay already cached for a given date under PROCEDURAL
+    when: the weather source preference is later switched to REAL_API and catch-up reaches that same date again
+    then: the cached PROCEDURAL row is returned unchanged, never refetched or overwritten
+    invariant: true
+  - id: AC-7
+    given: a Plant created with a commonName that matches no seeded species keyword
+    when: it is planted and growth catch-up runs
+    then: it resolves to the fallback SpeciesProfile (isFallbackDefault) and grows normally, rather than the catch-up call throwing
+    invariant: false
+  - id: AC-8
+    given: a HARVESTED cell whose planting is still tracked (not removed)
+    when: growth catch-up runs
+    then: its CellStatus remains HARVESTED — the automatic phenology-to-CellStatus projection never overwrites a HARVESTED or REMOVED cell
+    invariant: true
+depends_on:
+  - SPEC-GRID-001
+  - SPEC-LIGHT-001
+constitution_rules: []

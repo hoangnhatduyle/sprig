@@ -1,0 +1,48 @@
+# Infra spec template (kind: infra). Containers, deploy targets, runtime contracts.
+id: SPEC-DEPLOY-001
+version: 0.1.0
+kind: infra
+title: Service container & deploy target
+status: draft
+
+context_and_scope:
+  in_scope:
+    - Dockerfile + runtime contract
+    - Deploy target and health check
+  out_of_scope:
+    - CI pipeline definition (separate spec)
+  external_dependencies:
+    - PostgreSQL 17
+    - Container registry
+  shared_schemas:
+    - "ENV { DATABASE_URL, PORT, LOG_LEVEL }"
+
+# Deploy/runtime lifecycle as a state machine where it clarifies rollout behavior.
+state_machines:
+  - name: rollout
+    states: [BUILDING, STAGED, LIVE, ROLLED_BACK]
+    initial: BUILDING
+    transitions:
+      - { from: BUILDING, event: stage, to: STAGED }
+      - { from: STAGED, event: promote, to: LIVE }
+      - { from: LIVE, event: rollback, to: ROLLED_BACK }
+    forbidden:
+      - { from: BUILDING, to: LIVE, reason: "Must pass through STAGED + health check" }
+
+negative_constraints:
+  - id: NC-INF-NO-SECRETS-IN-IMAGE
+    message: Secrets MUST NOT be baked into the image; inject at runtime.
+    severity: critical
+  - id: NC-INF-HEALTHCHECK-REQUIRED
+    message: A service MUST NOT be promoted to LIVE without a passing health check.
+    severity: high
+
+acceptance_criteria:
+  - id: AC-1
+    given: a freshly built image
+    when: promotion to LIVE is attempted directly from BUILDING
+    then: it is blocked (forbidden BUILDING->LIVE)
+    invariant: true
+
+depends_on: []
+constitution_rules: [NC-SECRETS]

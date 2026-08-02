@@ -1,0 +1,936 @@
+<title>Sprig — User Guide</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #f3ede1;
+    --bg-raised: #fbf7ef;
+    --sunken: #ece2ce;
+    --text: #2a2420;
+    --text-muted: #6e6154;
+    --border: #ddd0ba;
+    --clay: #b9673a;
+    --clay-strong: #8f4a28;
+    --clay-soft: #f0ddc9;
+    --good: #4c7a56;
+    --good-soft: #e1ebe1;
+    --warn-bg: #f6e6c5;
+    --warn-text: #7a5a1a;
+    --danger: #a23e3e;
+    --danger-soft: #f4e1de;
+    --focus: #8f4a28;
+    --shadow: 0 1px 2px rgba(60, 45, 25, 0.06), 0 6px 20px -8px rgba(60, 45, 25, 0.18);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1611;
+      --bg-raised: #242019;
+      --sunken: #161209;
+      --text: #ece2d2;
+      --text-muted: #b0a08d;
+      --border: #3c3327;
+      --clay: #e0925f;
+      --clay-strong: #f0ab7c;
+      --clay-soft: #3a2a1c;
+      --good: #86b490;
+      --good-soft: #24322a;
+      --warn-bg: #43371c;
+      --warn-text: #e8cf8a;
+      --danger: #e2938e;
+      --danger-soft: #3a2523;
+      --focus: #f0ab7c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1611;
+    --bg-raised: #242019;
+    --sunken: #161209;
+    --text: #ece2d2;
+    --text-muted: #b0a08d;
+    --border: #3c3327;
+    --clay: #e0925f;
+    --clay-strong: #f0ab7c;
+    --clay-soft: #3a2a1c;
+    --good: #86b490;
+    --good-soft: #24322a;
+    --warn-bg: #43371c;
+    --warn-text: #e8cf8a;
+    --danger: #e2938e;
+    --danger-soft: #3a2523;
+    --focus: #f0ab7c;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f3ede1;
+    --bg-raised: #fbf7ef;
+    --sunken: #ece2ce;
+    --text: #2a2420;
+    --text-muted: #6e6154;
+    --border: #ddd0ba;
+    --clay: #b9673a;
+    --clay-strong: #8f4a28;
+    --clay-soft: #f0ddc9;
+    --good: #4c7a56;
+    --good-soft: #e1ebe1;
+    --warn-bg: #f6e6c5;
+    --warn-text: #7a5a1a;
+    --danger: #a23e3e;
+    --danger-soft: #f4e1de;
+    --focus: #8f4a28;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+
+  h1, h2, h3, .wordmark {
+    font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", "URW Palladio L", Georgia, serif;
+    color: var(--text);
+    text-wrap: balance;
+    font-weight: 600;
+  }
+
+  a { color: var(--clay-strong); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--clay-strong);
+  }
+
+  /* ---------- Shell layout ---------- */
+  .shell {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 0;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 1.75rem 1.25rem 2rem 1.5rem;
+    border-right: 1px solid var(--border);
+  }
+
+  .sidebar .wordmark {
+    font-size: 1.6rem;
+    margin: 0.15rem 0 0.1rem;
+  }
+
+  .sidebar-tagline {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0 0 1.5rem;
+  }
+
+  nav.toc {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  nav.toc a {
+    display: block;
+    padding: 0.4rem 0.6rem;
+    border-radius: 8px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  nav.toc a.sub {
+    padding-left: 1.4rem;
+    font-size: 0.83rem;
+  }
+  nav.toc a:hover { background: var(--sunken); color: var(--text); }
+  nav.toc a.active {
+    background: var(--clay-soft);
+    color: var(--clay-strong);
+    font-weight: 600;
+  }
+
+  .mobile-nav-toggle { display: none; }
+
+  main {
+    padding: 2.5rem 3rem 6rem;
+    min-width: 0;
+  }
+
+  .masthead {
+    max-width: 62ch;
+    margin-bottom: 3rem;
+  }
+  .masthead h1 {
+    font-size: clamp(2.1rem, 1.6rem + 2vw, 3rem);
+    margin: 0.3rem 0 0.75rem;
+  }
+  .masthead p.lede {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    max-width: 56ch;
+  }
+
+  section.guide-section {
+    max-width: 68ch;
+    margin: 0 0 3.5rem;
+    scroll-margin-top: 1.5rem;
+  }
+  section.guide-section.wide { max-width: 780px; }
+
+  section.guide-section h2 {
+    font-size: 1.55rem;
+    border-top: 1px solid var(--border);
+    padding-top: 2.25rem;
+    margin: 0 0 0.35rem;
+  }
+  section.guide-section > .eyebrow { display: block; margin-top: 2.25rem; }
+  section.guide-section h2 + .step-intro { margin-top: 0.5rem; }
+
+  h3.sub-heading {
+    font-size: 1.1rem;
+    margin: 2rem 0 0.6rem;
+  }
+
+  p { margin: 0.75rem 0; }
+  ul, ol { margin: 0.75rem 0; padding-left: 1.3rem; }
+  li { margin: 0.3rem 0; }
+
+  code, kbd {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--sunken);
+    padding: 0.1em 0.4em;
+    border-radius: 5px;
+    font-size: 0.88em;
+  }
+
+  /* ---------- Step list ---------- */
+  ol.steps {
+    list-style: none;
+    padding: 0;
+    margin: 1.1rem 0;
+    counter-reset: step;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  ol.steps > li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 2.5rem;
+    margin: 0;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0.05rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    background: var(--clay-soft);
+    color: var(--clay-strong);
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, sans-serif;
+  }
+  ol.steps strong { color: var(--text); }
+
+  /* ---------- Callouts ---------- */
+  .callout {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--clay);
+    background: var(--bg-raised);
+    border-radius: 10px;
+    padding: 0.85rem 1.1rem;
+    margin: 1.25rem 0;
+    box-shadow: var(--shadow);
+  }
+  .callout.tip { border-left-color: var(--good); }
+  .callout.warn { border-left-color: var(--warn-text); background: var(--warn-bg); }
+  .callout p { margin: 0.25rem 0; }
+  .callout .callout-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--clay-strong);
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+  .callout.tip .callout-label { color: var(--good); }
+  .callout.warn .callout-label { color: var(--warn-text); }
+
+  /* ---------- Mock UI chrome (visual references, not real controls) ---------- */
+  .mock {
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 1rem 1.1rem;
+    margin: 1.25rem 0;
+  }
+  .mock-caption {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 0.6rem;
+  }
+  .mock-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .mock-tab {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+  }
+  .mock-tab.active { border-color: var(--clay); color: var(--clay-strong); background: var(--sunken); }
+
+  .mock-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 8px;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    color: var(--text);
+    background: var(--sunken);
+  }
+  .mock-btn.primary { background: var(--clay); border-color: var(--clay); color: #fff8f0; }
+
+  .mock-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+    max-width: 320px;
+    margin-top: 0.75rem;
+  }
+  .mock-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    border: 2px solid var(--border);
+    background: var(--sunken);
+  }
+  .mock-cell.planted { background: var(--good-soft); border-color: var(--good); }
+  .mock-cell.growing { background: #d9e8da; border-color: var(--good); }
+  .mock-cell.selected { border-color: var(--clay); border-style: solid; box-shadow: 0 0 0 2px var(--clay-soft); }
+
+  .swatch-list {
+    list-style: none;
+    margin: 0.75rem 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .swatch-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.92rem;
+  }
+  .swatch {
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 3px;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+  }
+  .swatch.planted { background: var(--clay-soft); border-color: var(--clay); }
+  .swatch.germinated { background: #d8e4d9; border-color: #6f9a76; }
+  .swatch.growing { background: #cfe3d0; border-color: var(--good); }
+  .swatch.harvested { background: var(--sunken); border-color: var(--text-muted); }
+  .swatch.removed { background: transparent; border-color: var(--text-muted); border-style: dashed; }
+  .swatch.stressed { background: var(--warn-bg); border-color: var(--warn-text); }
+  .swatch.critical { background: var(--danger-soft); border-color: var(--danger); }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  table.ref-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin: 1rem 0;
+  }
+  table.ref-table th, table.ref-table td {
+    text-align: left;
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.ref-table th {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .table-scroll { overflow-x: auto; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  @media (max-width: 640px) {
+    .two-col { grid-template-columns: 1fr; }
+  }
+
+  footer.guide-footer {
+    max-width: 68ch;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--border);
+    padding-top: 1.5rem;
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar {
+      position: static;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.25rem;
+    }
+    .sidebar-tagline { margin-bottom: 0.75rem; }
+    nav.toc { display: none; }
+    nav.toc.open { display: flex; max-height: 60vh; overflow-y: auto; }
+    .mobile-nav-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border: 1px solid var(--border);
+      background: var(--bg-raised);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.5rem 0.9rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    main { padding: 1.75rem 1.25rem 4rem; }
+  }
+</style>
+
+<div class="shell">
+  <aside class="sidebar">
+    <p class="eyebrow">Garden Planner</p>
+    <p class="wordmark">Sprig</p>
+    <p class="sidebar-tagline">A friendly walkthrough for your very first visit.</p>
+    <button class="mobile-nav-toggle" id="navToggle" aria-expanded="false" aria-controls="tocNav">
+      ☰ Contents
+    </button>
+    <nav class="toc" id="tocNav" aria-label="Guide contents">
+      <a href="#start">Before you start</a>
+      <a href="#tabs">The three views</a>
+      <a href="#today">The Today view</a>
+      <a class="sub" href="#today-clock">Simulation speed &amp; clock</a>
+      <a class="sub" href="#today-beds">Garden beds &amp; planting</a>
+      <a class="sub" href="#today-3d">The 3D garden</a>
+      <a class="sub" href="#today-legend">Reading the legend</a>
+      <a class="sub" href="#today-overview">Garden overview</a>
+      <a href="#inventory">Household inventory</a>
+      <a class="sub" href="#inventory-add">Adding seeds</a>
+      <a class="sub" href="#inventory-drag">Planting by drag-and-drop</a>
+      <a class="sub" href="#inventory-yield">Yield &amp; harvest log</a>
+      <a href="#care">Caring for a plant</a>
+      <a href="#manual">Manual simulation</a>
+      <a class="sub" href="#manual-conditions">Conditions &amp; equipment</a>
+      <a class="sub" href="#manual-pests">Pests &amp; predators</a>
+      <a href="#glossary">Quick glossary</a>
+      <a href="#tips">Tips &amp; troubleshooting</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="masthead">
+      <p class="eyebrow">User Guide</p>
+      <h1>Getting comfortable with Sprig</h1>
+      <p class="lede">Sprig is a garden planner that runs its own little simulation — seeds you plant actually grow over
+        (simulated) days and weeks, weather affects them, pests show up, and you can step in with real tools like
+        shade cloth, fertilizer, or ladybugs. This guide walks through everything you can do, in the order you'll
+        probably want to do it.</p>
+    </div>
+
+    <section class="guide-section" id="start">
+      <h2>Before you start</h2>
+      <p>Sprig is organized around one big idea: a <strong>garden</strong> made of <strong>beds</strong>, and each bed
+        is a grid of <strong>cells</strong> you can plant into — like little square-foot gardening plots. Time in
+        Sprig moves on its own simulated clock, so plants keep growing, weather keeps happening, and pests keep
+        breeding even while you're not looking at the screen — you're checking in on a living garden, not just
+        editing a spreadsheet.</p>
+      <p>Everything happens across three tabs at the top of the page: <strong>Today</strong>, <strong>Household
+        inventory</strong>, and <strong>Manual simulation</strong>. The next section covers what each one is for,
+        and the rest of the guide goes through them one at a time.</p>
+    </section>
+
+    <section class="guide-section" id="tabs">
+      <h2>The three views</h2>
+      <div class="mock">
+        <div class="mock-tabs">
+          <span class="mock-tab active">Today</span>
+          <span class="mock-tab">Household inventory</span>
+          <span class="mock-tab">Manual simulation</span>
+        </div>
+        <p class="mock-caption">These three tabs sit at the top of every page. You'll spend most of your time in
+          Today.</p>
+      </div>
+      <ul>
+        <li><strong>Today</strong> — your main dashboard. See the current simulated date and weather, look at both
+          garden beds (in a flat grid and in 3D), click any cell to inspect or plant it, and control how fast time
+          moves.</li>
+        <li><strong>Household inventory</strong> — your seed box and harvest log. Add plant varieties, track how
+          many seeds you have left, and see everything you've harvested so far.</li>
+        <li><strong>Manual simulation</strong> — the "hands-on gardener" tools. Install real equipment like shade
+          cloth, preview what a change would do before committing to it, treat pests, and release beneficial
+          insects.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section wide" id="today">
+      <p class="eyebrow">The Today view</p>
+      <h2>Your garden, right now</h2>
+      <p>This is the tab you'll open first every time. It's split into a clock and weather strip up top, your two
+        garden beds (plus a 3D view) in the middle, and a summary or a detail panel underneath — depending on
+        whether you've clicked on anything.</p>
+
+      <h3 class="sub-heading" id="today-clock">Simulation speed &amp; clock</h3>
+      <p>Sprig doesn't just sit still — it runs on a simulated clock that you control. At the top of the Today tab
+        you'll find:</p>
+      <div class="mock">
+        <p style="font-family: ui-monospace, monospace; font-size: 1.1rem; margin: 0 0 0.6rem;">Fri, Jul 31, 2026 · 9:32:54 PM</p>
+        <div class="mock-tabs">
+          <span class="mock-btn">▶ Resume</span>
+          <span class="mock-btn">Paused ▾</span>
+          <span class="mock-btn">Advance now</span>
+          <span class="mock-btn">↺ Jump to now</span>
+        </div>
+        <p class="mock-caption">The live readout at the top always shows the simulated date and time — not necessarily
+          today's real date.</p>
+      </div>
+      <ul>
+        <li><strong>The clock readout</strong> at the top shows the simulated date and time. This is what your garden
+          thinks "now" is — it can run faster than real life, so don't be surprised if it's ahead of the actual
+          calendar.</li>
+        <li><strong>Pause / Resume</strong> stops or restarts time. While paused, nothing grows, no weather happens,
+          and pests stay put.</li>
+        <li><strong>The speed dropdown</strong> lets you pick how fast simulated time passes: <em>Paused</em>,
+          <em>Real time</em> (1 second per second, like a real garden), <em>Fast</em> (about a simulated day every
+          real minute), <em>Very fast</em> (about 12 simulated days a minute), or <em>Max</em> for the fastest catch-up.</li>
+        <li><strong>Advance now</strong> asks the garden to catch up immediately instead of waiting for the next
+          automatic check-in — handy right after you change something and want to see the effect sooner.</li>
+        <li><strong>Jump to now</strong> snaps the simulated clock back to the real current date and time, without
+          changing whatever speed you had it set to.</li>
+      </ul>
+      <div class="callout tip">
+        <span class="callout-label">Tip</span>
+        <p>If this is your first time opening Sprig, everything starts <strong>paused</strong>. Nothing will grow or
+          change until you plant something and pick a speed faster than Paused (or click Advance now).</p>
+      </div>
+      <p>Just under the clock is a small weather strip showing whether it's day or night, plus sunrise and sunset
+        times. Until the simulation has advanced at least once, it'll say <em>"Weather hasn't been generated yet —
+        advance the simulation to see today's conditions."</em> That's expected — just nudge the clock forward.</p>
+
+      <h3 class="sub-heading" id="today-beds">Garden beds &amp; planting a cell</h3>
+      <p>Below the clock you'll see one card per garden bed (for example, <strong>Left Bed</strong> and <strong>Right
+        Bed</strong>), each showing a grid of square cells — an empty cell is just an open square waiting to be
+        planted.</p>
+      <div class="mock">
+        <div class="mock-grid" aria-hidden="true">
+          <div class="mock-cell"></div><div class="mock-cell"></div><div class="mock-cell planted"></div><div class="mock-cell"></div>
+          <div class="mock-cell"></div><div class="mock-cell growing"></div><div class="mock-cell"></div><div class="mock-cell"></div>
+          <div class="mock-cell"></div><div class="mock-cell"></div><div class="mock-cell selected"></div><div class="mock-cell"></div>
+        </div>
+        <p class="mock-caption">Click any square to select it — a highlighted border shows which cell you've picked.</p>
+      </div>
+      <ol class="steps">
+        <li><strong>Click any empty cell</strong> in a bed. A details panel opens beneath the grid for that exact
+          spot (bed name, column, and row).</li>
+        <li>Click <strong>Assign plant</strong> in that panel to open the list of plant varieties from your seed box,
+          and pick one. The cell's status becomes <em>Planted</em> right away.</li>
+        <li>If the cell already has something growing in it, the same button says <strong>Change plant</strong>
+          instead, and you'll also see an option to <strong>add a companion</strong> plant alongside the existing one
+          rather than replacing it.</li>
+      </ol>
+      <p>Once a cell is planted, clicking it again shows you everything currently happening there: what stage the
+        plant is at, whether it's stressed, its soil condition, and the care actions covered in
+        <a href="#care">Caring for a plant</a> below.</p>
+      <p>Above the grid, a <strong>Show soil moisture heatmap</strong> button lets you switch the grid to color cells
+        by how wet or dry their soil is, instead of by plant status — useful for spotting which parts of a bed need
+        water.</p>
+
+      <h3 class="sub-heading" id="today-3d">The 3D garden</h3>
+      <p>Next to (or below, on a narrower screen) the flat grid is a 3D view of the same two beds, complete with a
+        trellis, a bench, and day/night lighting that follows the simulated clock. It's not just decorative — it's
+        wired to the same data as the flat grid:</p>
+      <ul>
+        <li>Clicking a raised bed cell in 3D selects it exactly like clicking the flat grid — the same details panel
+          opens.</li>
+        <li>Plants visibly grow, wilt, or show pest activity in the 3D scene as the simulation advances.</li>
+        <li>It has its own legend button (see below) explaining the colors and icons used in the 3D scene
+          specifically.</li>
+      </ul>
+
+      <h3 class="sub-heading" id="today-legend">Reading the legend</h3>
+      <p>Under the grids, a collapsible <strong>Legend</strong> panel explains every color and icon you'll see on a
+        cell. Expand it any time you're not sure what a marking means.</p>
+      <div class="mock">
+        <ul class="swatch-list">
+          <li><span class="swatch planted"></span> Planted — seed is in, hasn't sprouted yet</li>
+          <li><span class="swatch germinated"></span> Germinated — has sprouted</li>
+          <li><span class="swatch growing"></span> Growing — actively developing</li>
+          <li><span class="swatch harvested"></span> Harvested — produce has been picked</li>
+          <li><span class="swatch removed"></span> Removed — plant cleared from this cell</li>
+          <li><span class="swatch stressed"></span> Stressed — needs attention soon</li>
+          <li><span class="swatch critical"></span> Critical — needs attention now</li>
+        </ul>
+      </div>
+      <p>The legend also lists equipment icons (shade cloth, grow light, rain cover), pest icons, and predator icons
+        — but only the ones actually relevant to your garden right now, so it won't show a pest icon if nothing has
+        pests yet.</p>
+
+      <h3 class="sub-heading" id="today-overview">Garden overview panel</h3>
+      <p>When no cell is selected, the space under the grid shows a <strong>Garden overview</strong> instead of a
+        cell's details — a quick report on the whole garden:</p>
+      <ul>
+        <li>Overall stats: percent of cells planted, number of beds, and number of distinct plant varieties in use.</li>
+        <li>Per-bed cards showing how full each bed is, a "Needs attention" note if anything is stressed, critical, or
+          infected, any equipment installed on that bed, and whether beneficial predators are active there.</li>
+        <li>A simple count of how many cells are in each lifecycle stage, and which plants (and how many of each) are
+          growing in that bed.</li>
+      </ul>
+      <p>Click <strong>×</strong> on a selected cell's panel (or just click empty space) to deselect it and return to
+        this overview.</p>
+    </section>
+
+    <section class="guide-section wide" id="inventory">
+      <p class="eyebrow">Household inventory</p>
+      <h2>Your seed box and harvest log</h2>
+      <p>This tab is where plant varieties live before they ever touch soil, and where everything you've picked ends
+        up afterward. It has two sub-tabs: <strong>Seeds</strong> and <strong>Yield</strong>.</p>
+
+      <h3 class="sub-heading" id="inventory-add">Adding seeds</h3>
+      <ol class="steps">
+        <li>Click <strong>Add plant</strong> in the top-right of the panel.</li>
+        <li>Fill in a <strong>plant name</strong> (required), optionally its species, how many seeds you have
+          (<strong>quantity</strong>), what unit that's measured in (seed, packet, start — whatever makes sense to
+          you), and any notes.</li>
+        <li>Click <strong>Add plant</strong> to save it. It now appears as a small square "seed slot" in the grid,
+          showing a leaf icon (or a photo, if you add one) with the remaining quantity in the corner.</li>
+      </ol>
+      <p>Click any seed slot to open a small popup with three actions: <strong>Edit</strong> its details,
+        <strong>Image</strong> to upload a photo for it, or <strong>Delete</strong> it (plants you've already grown
+        from it stay recorded in history even after you delete the seed entry).</p>
+      <p>The search box above the grid filters by name, species, or notes — handy once your seed box grows past a
+        handful of varieties.</p>
+
+      <h3 class="sub-heading" id="inventory-drag">Planting by drag-and-drop</h3>
+      <p>Instead of using the Assign plant button from the Today tab, you can drag a seed slot straight onto an open
+        cell in either garden bed:</p>
+      <ol class="steps">
+        <li>From the <strong>Seeds</strong> grid, press and drag a plant's square onto any cell shown in a garden bed
+          (you'll need both the inventory and the garden visible — this works well on a wider window).</li>
+        <li>Drop it on the cell you want. A confirmation dialog pops up asking how much of your seed supply to
+          consume, and — if that cell already has something growing — whether to <strong>replace the current
+          plant</strong> or <strong>add it as a companion</strong> instead.</li>
+        <li>Click <strong>Confirm planting</strong> to finish, or <strong>Cancel</strong> to back out without
+          changing anything.</li>
+      </ol>
+      <div class="callout">
+        <span class="callout-label">Note</span>
+        <p>A seed slot with zero quantity left can't be dragged — you'll need to edit it and add more, or it's simply
+          out of stock.</p>
+      </div>
+
+      <h3 class="sub-heading" id="inventory-yield">Yield &amp; harvest log</h3>
+      <p>Switch to the <strong>Yield</strong> sub-tab to see everything you've harvested:</p>
+      <ul>
+        <li>A running <strong>total by plant and unit</strong> (for example, "Tomato — 4.5 lb across 3 harvests").</li>
+        <li>A full chronological list of individual harvests, each with the date, which bed/column/row it came from,
+          and any notes you added when you recorded it.</li>
+      </ul>
+      <p>Harvests get added from the <a href="#care">Caring for a plant</a> panel, not from here — this tab is a
+        read-only ledger of what's already come in.</p>
+    </section>
+
+    <section class="guide-section wide" id="care">
+      <p class="eyebrow">On the Today tab, inside a selected cell</p>
+      <h2>Caring for a planted cell</h2>
+      <p>Once you click a planted cell, its details panel shows two areas worth knowing about: <strong>Growth</strong>
+        and <strong>Care</strong>.</p>
+
+      <h3 class="sub-heading">Growth — what the plant is doing on its own</h3>
+      <p>Germination and growth happen automatically as simulated time passes — you don't click anything to make a
+        plant grow. This panel just reports what's going on: its current stage (germinating, vegetative growth,
+        flowering, fruiting, mature, dying back), roughly how much canopy and fruit it has, and a sustained-stress
+        meter. If something's wrong, a small colored badge names the dominant problem — for example
+        <span class="pill">not enough light</span> or <span class="pill">drought stress</span> — see the
+        <a href="#glossary">glossary</a> for the full list.</p>
+      <p>While a plant is in the <em>Growing</em> stage, you can also:</p>
+      <ul>
+        <li><strong>Record a harvest</strong> — enter an amount and unit (and optional notes), then submit. The plant
+          keeps growing afterward; this just logs what you picked without ending the planting.</li>
+        <li><strong>Finish planting</strong> — marks this planting as done for good, once you're finished harvesting
+          from it.</li>
+      </ul>
+
+      <h3 class="sub-heading">Care — things you actively apply</h3>
+      <p>Further down the same panel, a <strong>Care</strong> section shows the cell's soil condition (moisture,
+        temperature, nutrients, any mulch already down) plus buttons for hands-on treatments:</p>
+      <div class="table-scroll">
+        <table class="ref-table">
+          <thead><tr><th>Action</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Apply mulch</td><td>Lay down a mulch layer at the depth (in mm) you choose — helps retain
+              moisture.</td></tr>
+            <tr><td>Add compost</td><td>Adds organic matter that releases nutrients slowly over time, rather than all
+              at once.</td></tr>
+            <tr><td>Apply fertilizer</td><td>Choose <em>synthetic</em> (fast-acting, but leaches out of the soil
+              easily) or <em>organic</em> (slow-release), and set how much nitrogen, phosphorus, and potassium (N/P/K)
+              to add.</td></tr>
+            <tr><td>Apply fungicide</td><td>Knocks back an active infection on that cell — a real treatment, not an
+              instant cure.</td></tr>
+            <tr><td>Apply weeding</td><td>Reduces weed pressure on the cell — again, a real reduction rather than
+              resetting it to zero.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every one of these is a real change: unlike the what-if preview described next, care actions actually affect
+        this cell's future growth the moment you apply them.</p>
+    </section>
+
+    <section class="guide-section wide" id="manual">
+      <p class="eyebrow">Manual simulation</p>
+      <h2>Stepping in as the gardener</h2>
+      <p>This tab is where you go beyond individual cells and act on whole beds at once — installing real equipment,
+        trying out a scenario before committing to it, or dealing with pests. It has two sections: <strong>Conditions</strong>
+        and <strong>Pests &amp; predators</strong>.</p>
+
+      <h3 class="sub-heading" id="manual-conditions">Conditions: equipment and what-if previews</h3>
+      <p>First, tick the checkbox for whichever bed (or beds) you want to affect — <strong>Left Bed</strong>,
+        <strong>Right Bed</strong>, or both. Everything below applies to whatever's ticked.</p>
+
+      <div class="callout warn">
+        <span class="callout-label">The one thing to keep straight</span>
+        <p><strong>Install real equipment</strong> permanently changes your actual garden's future growth.
+          <strong>Preview a what-if scenario</strong> never saves anything — it just shows you a projection so you
+          can decide whether it's worth doing for real.</p>
+      </div>
+
+      <h4 style="margin: 1.25rem 0 0.4rem; font-size: 1rem;">Install real equipment</h4>
+      <ol class="steps">
+        <li>Pick an <strong>Equipment</strong> type: <em>Shade cloth</em> (less light), <em>Grow light</em> (more
+          light), or <em>Rain cover</em> (less rain).</li>
+        <li>Drag the <strong>Intensity</strong> slider to how strong an effect you want (each type has its own
+          sensible maximum, so you can't overdo it).</li>
+        <li>Click <strong>Install</strong>. It now shows up under "Active equipment" for that bed, and you can
+          <strong>Remove</strong> it later the same way.</li>
+      </ol>
+      <p>This actually changes the selected bed's future growth, starting the next time the simulation checks in on
+        it — it's real gear on a real bed, not a simulation trick.</p>
+
+      <h4 style="margin: 1.25rem 0 0.4rem; font-size: 1rem;">Preview a what-if scenario</h4>
+      <p>This projects your bed's current plants forward under different conditions, purely to help you decide —
+        nothing here is ever saved or applied to your real garden.</p>
+      <ol class="steps">
+        <li>Optionally click one of the three preset buttons — <strong>Shade cloth preset</strong>, <strong>Grow
+          light preset</strong>, or <strong>Rain cover preset</strong> — to fill in realistic light/rain numbers for
+          that scenario automatically.</li>
+        <li>Or set the numbers yourself: <strong>Days to project</strong> (how far into the future to simulate),
+          <strong>Light</strong> and <strong>Rain</strong> multipliers (where <code>1</code> is normal — above 1 is
+          more, below 1 is less).</li>
+        <li>Click <strong>Run preview</strong>. For every planting in the selected bed(s), you'll see a one-line
+          before-and-after: growth stage, canopy percentage, fruiting, and any wilting or sustained stress the
+          projection predicts.</li>
+      </ol>
+      <div class="callout tip">
+        <span class="callout-label">Tip</span>
+        <p>A natural workflow: click a preset to see roughly what shade cloth (or a grow light, or a rain cover)
+          would do, run the preview, and if you like the projected outcome, scroll back up and actually install that
+          equipment for real.</p>
+      </div>
+
+      <h3 class="sub-heading" id="manual-pests">Pests &amp; predators</h3>
+      <p>Same bed-selection idea as above: tick the bed(s) you want to act on first.</p>
+      <p>If anything's currently active, you'll see it listed right away — <strong>Active pests</strong> (with a
+        pressure level like low/moderate/high) and, if you've released any, <strong>Active predators</strong> and
+        their population.</p>
+
+      <h4 style="margin: 1.25rem 0 0.4rem; font-size: 1rem;">Apply pesticide</h4>
+      <ol class="steps">
+        <li>Choose which <strong>Pest</strong> to target (for example, Aphid, Caterpillar, or Slug).</li>
+        <li>Optionally tick <strong>Broad-spectrum</strong> — this also suppresses beneficial predators on the same
+          bed, so use it only when that trade-off is worth it.</li>
+        <li>Click <strong>Apply</strong>. It knocks that pest's population down hard — but not to zero — reflecting
+          real pesticide use.</li>
+      </ol>
+
+      <h4 style="margin: 1.25rem 0 0.4rem; font-size: 1rem;">Release predators</h4>
+      <ol class="steps">
+        <li>Pick a <strong>Predator</strong>: <em>Ladybug</em> (targets aphids specifically) or <em>General
+          Beneficials</em> (covers aphids, caterpillars, and slugs more broadly).</li>
+        <li>Set an <strong>Amount</strong> between 0 and 5.</li>
+        <li>Click <strong>Release</strong>. Predator numbers then rise and fall on their own afterward, hunting down
+          their prey over time — you're seeding a population, not directly killing pests.</li>
+      </ol>
+    </section>
+
+    <section class="guide-section wide" id="glossary">
+      <h2>Quick glossary</h2>
+      <p>Terms you'll run into around the garden, gathered in one place.</p>
+
+      <h3 class="sub-heading">Cell status</h3>
+      <div class="table-scroll">
+        <table class="ref-table">
+          <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>Empty</td><td>Nothing planted yet.</td></tr>
+            <tr><td>Planted</td><td>Seed is in the ground, hasn't germinated yet.</td></tr>
+            <tr><td>Germinated</td><td>It has sprouted.</td></tr>
+            <tr><td>Growing</td><td>Actively developing — this is when harvesting is available.</td></tr>
+            <tr><td>Harvested</td><td>The planting has been marked finished after harvesting.</td></tr>
+            <tr><td>Removed</td><td>Cleared out of the cell.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="sub-heading">Health &amp; stress</h3>
+      <p>A plant can be <strong>healthy</strong>, <strong>stressed</strong> (worth keeping an eye on), or
+        <strong>critical</strong> (needs attention now). When it's not healthy, Sprig names the single biggest cause
+        — its "dominant stress dial":</p>
+      <div class="two-col">
+        <ul>
+          <li>Heat stress</li>
+          <li>Cold stress</li>
+          <li>Drought stress</li>
+          <li>Overwatered</li>
+        </ul>
+        <ul>
+          <li>Not enough light</li>
+          <li>Nutrient-limited</li>
+          <li>Transplant shock</li>
+          <li>Wind lodging risk</li>
+          <li>Pest &amp; disease pressure</li>
+        </ul>
+      </div>
+
+      <h3 class="sub-heading">Equipment</h3>
+      <ul>
+        <li><strong>Shade cloth</strong> — reduces light.</li>
+        <li><strong>Grow light</strong> — adds light.</li>
+        <li><strong>Rain cover</strong> — reduces rain reaching the bed.</li>
+      </ul>
+
+      <h3 class="sub-heading">Pests &amp; predators</h3>
+      <ul>
+        <li><strong>Aphid, Caterpillar, Slug</strong> — the pests you can treat with pesticide.</li>
+        <li><strong>Ladybug</strong> — preys specifically on aphids.</li>
+        <li><strong>General Beneficials</strong> — a broader mix of helpful insects that preys on aphids,
+          caterpillars, and slugs.</li>
+      </ul>
+    </section>
+
+    <section class="guide-section" id="tips">
+      <h2>Tips &amp; troubleshooting</h2>
+      <ul>
+        <li><strong>Nothing seems to be happening.</strong> Check the simulation speed — if it says
+          <em>Paused</em>, growth, weather, and pests are all frozen. Pick a speed, or click Advance now.</li>
+        <li><strong>I don't have any plants to choose from.</strong> Add at least one plant in <a href="#inventory">Household
+          inventory → Seeds</a> first — the Today tab's plant picker is built from your seed box.</li>
+        <li><strong>A seed won't drag onto a bed.</strong> It's probably out of stock — open its popup and check the
+          quantity, or edit it to add more.</li>
+        <li><strong>I tried a what-if preview and I want that for real.</strong> Previews never save anything — go to
+          <a href="#manual-conditions">Install real equipment</a> and set it up there instead.</li>
+        <li><strong>A cell won't let me plant a fresh crop.</strong> If it's marked Harvested, clear or remove it
+          first — Sprig deliberately won't let you plant straight over a harvested cell.</li>
+        <li><strong>Something looks off in the garden view.</strong> Click <strong>Legend</strong> under either the
+          flat grid or the 3D view to check what a color or icon means before assuming something's wrong.</li>
+      </ul>
+    </section>
+
+    <footer class="guide-footer">
+      <p>That's the whole tour. The best way to get comfortable is to add one plant variety, drag it into a cell,
+        and nudge the simulation speed forward — you'll see the whole loop in a few minutes.</p>
+    </footer>
+  </main>
+</div>
+
+<script>
+  (function () {
+    var toggle = document.getElementById('navToggle');
+    var nav = document.getElementById('tocNav');
+    if (toggle && nav) {
+      toggle.addEventListener('click', function () {
+        var open = nav.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
+
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+    var sections = links
+      .map(function (a) { return document.querySelector(a.getAttribute('href')); })
+      .filter(Boolean);
+
+    if ('IntersectionObserver' in window && sections.length) {
+      var byId = {};
+      links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+
+      var observer = new IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (entry) {
+            var link = byId[entry.target.id];
+            if (!link) return;
+            if (entry.isIntersecting) {
+              links.forEach(function (a) { a.classList.remove('active'); });
+              link.classList.add('active');
+            }
+          });
+        },
+        { rootMargin: '-15% 0px -70% 0px', threshold: 0 }
+      );
+      sections.forEach(function (section) { observer.observe(section); });
+    }
+  })();
+</script>

@@ -1,0 +1,22 @@
+name: resume
+description: read-state -> baseline -> continue (survive a context reset / fresh session)
+steps:
+  - name: read-state
+    gate: none
+    requires: [handoff_read]
+    hint: >-
+      Run session_handoff mode:'read' for this project to recover the prior session's state
+      (in-flight workflow run, highest-priority incomplete spec, next action, last-good commit).
+      Pass handoff_read:true.
+  - name: baseline
+    gate: baseline-verify
+    requires: [baseline_verified]
+    hint: >-
+      Run verify_baseline before doing anything else — confirm the existing suite / a basic
+      E2E is green (a prior session may have left the app broken). If broken, recover to the
+      last-good commit from the handoff first. Pass baseline_verified:true.
+  - name: continue
+    gate: none
+    hint: >-
+      Re-enter the new-feature workflow at the handoff's current_spec_id / next_action. When
+      the chunk is done, write a fresh session_handoff so the next session can resume.

@@ -1,0 +1,38 @@
+spec_id: SPEC-GRID-001
+generated_at: 2026-07-27T15:44:20.671Z
+cases:
+  - id: T-SPEC-GRID-001-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-GRID-001#AC-1
+    assertion: given the two garden beds as captured from docs/Exterior Design.pdf, when a user opens the 3D digital garden view, then both beds render in 3D on the ground plane with the correct grid dimensions (4x8 each), and every cell shows its actual assigned plant (stylized/low-poly), or explicitly empty, matching the reconciled garden journal
+    invariant: false
+  - id: T-SPEC-GRID-001-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-GRID-001#AC-2
+    assertion: given a grid cell in any lifecycle state except HARVESTED-then-immediately-regrown, when the user assigns a different plant from the catalog, then the cell's plant assignment updates and a dated planting event is recorded, without erasing the prior event's history
+    invariant: true
+  - id: T-SPEC-GRID-001-FORBID-Grid_cell_planting_lifecycle_HARVESTED_GROWING
+    kind: forbidden-transition
+    traces_to: SPEC-GRID-001#Grid cell planting lifecycle:HARVESTED->GROWING
+    assertion: "[Grid cell planting lifecycle] transition HARVESTED -> GROWING MUST be rejected (A harvested plant cannot un-harvest; remove and replant a new cycle instead)"
+    invariant: true
+  - id: T-SPEC-GRID-001-FORBID-Grid_cell_planting_lifecycle_EMPTY_GERMINATED
+    kind: forbidden-transition
+    traces_to: SPEC-GRID-001#Grid cell planting lifecycle:EMPTY->GERMINATED
+    assertion: "[Grid cell planting lifecycle] transition EMPTY -> GERMINATED MUST be rejected (A cell must be explicitly planted before it can germinate)"
+    invariant: true
+  - id: T-SPEC-GRID-001-NC-NC_SPRIG_NO_OVERWRITE_JOURNAL
+    kind: negative-constraint
+    traces_to: SPEC-GRID-001#NC-SPRIG-NO-OVERWRITE-JOURNAL
+    assertion: A simulation run MUST NOT overwrite or mutate the real garden journal history (actual planting/harvest/watering records captured from docs/Exterior Design.pdf p.15 and ongoing real observation).
+    invariant: true
+  - id: T-SPEC-GRID-001-NC-NC_SPRIG_GRID_IMMUTABLE_GEOMETRY
+    kind: negative-constraint
+    traces_to: SPEC-GRID-001#NC-SPRIG-GRID-IMMUTABLE-GEOMETRY
+    assertion: The bed grid dimensions (4 columns x 8 rows per bed) MUST NOT be silently resized by any feature; a physical bed change requires an explicit, dated 'bed renovation' record.
+    invariant: true
+  - id: T-SPEC-GRID-001-NC-NC_SPRIG_NO_SILENT_PLANT_CHANGE
+    kind: negative-constraint
+    traces_to: SPEC-GRID-001#NC-SPRIG-NO-SILENT-PLANT-CHANGE
+    assertion: A grid cell's plant assignment MUST NOT change without recording a dated event (planted/removed/harvested); no silent overwrites of prior assignments.
+    invariant: true

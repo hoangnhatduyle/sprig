@@ -1,0 +1,43 @@
+spec_id: SPEC-IRRIGATION-001
+generated_at: 2026-07-27T20:18:34.217Z
+cases:
+  - id: T-SPEC-IRRIGATION-001-AC-AC_4
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-4
+    assertion: given two rain barrels modeled at 50 gallons capacity each, when simulated rainfall would exceed the remaining combined capacity, then an OVERFLOWING event is recorded for the affected barrel instead of the excess volume silently vanishing
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-AC-AC_10
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-10
+    assertion: given a dry grid cell, when the user applies water to it in SIMULATION mode, then the cell's soil immediately renders visibly darker and wet-looking, distinct from its prior dry appearance
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-AC-AC_11
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-11
+    assertion: given the 3D viewer in REAL view mode, when simulated/real time crosses 8:00 AM, then the IrrigationSystem transitions IDLE to RUNNING and all cells in both beds render visibly wet within the 10-minute window, with no user action required to trigger it
+    invariant: true
+  - id: T-SPEC-IRRIGATION-001-AC-AC_12
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-12
+    assertion: given the IrrigationSystem has been RUNNING for 10 minutes, when the duration elapses, then the IrrigationSystem transitions back to IDLE automatically, and cells remain in their wet visual state per the existing no-decay water model (not reverted to dry)
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-AC-AC_13
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-13
+    assertion: given SIMULATION mode with cells manually watered by the user, when the user exits back to REAL view mode, then the viewer shows the REAL baseline (including whatever the automatic 8 AM cycle produced), not the manually-watered SIMULATION state
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-FORBID-Rain_barrel_water_level_EMPTY_OVERFLOWING
+    kind: forbidden-transition
+    traces_to: SPEC-IRRIGATION-001#Rain barrel water level:EMPTY->OVERFLOWING
+    assertion: "[Rain barrel water level] transition EMPTY -> OVERFLOWING MUST be rejected (Volume must pass through PARTIAL/FULL before overflow can occur)"
+    invariant: true
+  - id: T-SPEC-IRRIGATION-001-FORBID-Irrigation_cycle_RUNNING_RUNNING
+    kind: forbidden-transition
+    traces_to: SPEC-IRRIGATION-001#Irrigation cycle:RUNNING->RUNNING
+    assertion: "[Irrigation cycle] transition RUNNING -> RUNNING MUST be rejected (The daily cycle runs once per day for its fixed 10-minute duration; re-triggering mid-run instead of waiting for duration_elapsed would double-water without a real-world equivalent)"
+    invariant: true
+  - id: T-SPEC-IRRIGATION-001-NC-NC_SPRIG_IRRIGATION_AUTOMATIC_IN_REAL
+    kind: negative-constraint
+    traces_to: SPEC-IRRIGATION-001#NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL
+    assertion: In REAL view mode, the daily 8:00 AM/10-minute irrigation event MUST trigger automatically as simulated/real time crosses that window; it MUST NOT require manual user action to occur, mirroring how sunrise/sunset automatically drives the light system.
+    invariant: true
