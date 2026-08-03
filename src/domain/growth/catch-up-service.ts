@@ -15,7 +15,7 @@ import { getOrCreateSoilProfile } from "@/domain/soil/soil-profile-service";
 import { computeEcologyModifiersForBed, NEUTRAL_MODIFIERS, type EcologyCell, type EcologyModifiers } from "@/domain/ecology/ecology-service";
 import { dominantStressLabel, overwaterDialFromDaysNearSaturation } from "./stress-service";
 import type { WeatherSourcePreference } from "@/domain/weather/weather-service";
-import { getOrGenerateWeatherDay } from "@/domain/weather/weather-service";
+import { FORECAST_WINDOW_DAYS, getOrGenerateWeatherDay } from "@/domain/weather/weather-service";
 import type { GardenLocationCoords } from "@/domain/lighting/sun-times";
 import {
   ensureSpeciesCatalogSeeded,
@@ -141,6 +141,25 @@ async function catchUpWeatherDays(
   }
 }
 
+// Pre-generates WeatherDay rows for the forward-looking forecast window
+// (getForecastView's read side, weather-service.ts) — deliberately separate
+// from catchUpWeatherDays above, which only ever walks forward TO `through`
+// (today). This walks PAST it, into days that haven't been simulated yet, so
+// it must never run any growth/soil/pest step for them — only the weather
+// row itself. getOrGenerateWeatherDay's own REAL_API -> PROCEDURAL fallback
+// (real-weather-provider.ts) means this never throws just because a date is
+// outside Open-Meteo's real coverage window.
+async function pregenerateForecastDays(
+  prisma: PrismaClient,
+  location: GardenLocationCoords,
+  through: Date,
+  weatherSource: WeatherSourcePreference,
+): Promise<void> {
+  for (let i = 1; i < FORECAST_WINDOW_DAYS; i++) {
+    await getOrGenerateWeatherDay(prisma, location, addUtcDays(through, i), weatherSource);
+  }
+}
+
 export interface CatchUpSummary {
   plantingsProcessed: number;
   daysProcessed: number;
@@ -204,6 +223,7 @@ export async function catchUpGrowth(
   const weatherSource: WeatherSourcePreference = options.weatherSource ?? "PROCEDURAL";
   const location = await getGardenLocation(prisma);
   await catchUpWeatherDays(prisma, location, through, weatherSource);
+  await pregenerateForecastDays(prisma, location, through, weatherSource);
 
   const plantings = await prisma.cellPlanting.findMany({
     where: { removedAt: null },

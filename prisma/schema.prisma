@@ -158,6 +158,10 @@ model HarvestRecord {
 
   @@index([cellPlantingId, harvestedAt])
   @@index([plantId, harvestedAt])
+  // getGardenJournal (journal-service.ts) orders by harvestedAt desc + LIMIT
+  // with no cellPlantingId/plantId filter on the common unfiltered path —
+  // the two composite indexes above can't serve that scan pattern.
+  @@index([harvestedAt])
 }
 
 // Append-only dated event log backing NC-SPRIG-NO-SILENT-PLANT-CHANGE and
@@ -176,6 +180,10 @@ model GridCellEvent {
 
   @@index([cellId])
   @@index([plantId])
+  // Same "unfiltered ORDER BY occurredAt desc LIMIT" scan pattern as
+  // HarvestRecord.harvestedAt above (journal-service.ts) — cellId/plantId
+  // indexes alone can't serve that when neither filter is given.
+  @@index([occurredAt])
 }
 
 // Durable audit record backing NC-SPRIG-GRID-IMMUTABLE-GEOMETRY: a bed's
@@ -192,6 +200,7 @@ model BedRenovation {
   newRows      Int
 
   @@index([bedId])
+  @@index([occurredAt])
 }
 
 // --- SPEC-IRRIGATION-001 ----------------------------------------------------
@@ -665,6 +674,8 @@ model CareActionEvent {
 
   @@index([bedId, occurredAt])
   @@index([cellId, occurredAt])
+  // Same unfiltered-scan gap as GridCellEvent/HarvestRecord above.
+  @@index([occurredAt])
 }
 
 // User-authored freeform note, optionally with one attached photo and

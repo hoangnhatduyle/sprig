@@ -39,6 +39,7 @@ const TEST_ENVIRONMENT: GardenEnvironment = {
   sunriseIso: "2026-06-01T10:00:00.000Z",
   sunsetIso: "2026-06-02T02:00:00.000Z",
   weather: null,
+  forecast: [],
 };
 
 function makeCell(column: number, row: number, status: SnapshotCell["status"], plantIds: string[] = []): SnapshotCell {

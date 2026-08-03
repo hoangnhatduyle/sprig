@@ -11,6 +11,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import dynamic from "next/dynamic";
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   advancePlantingAction,
@@ -32,13 +33,33 @@ import {
 import type { GardenJournal } from "@/domain/journal/journal-service";
 import type { InventoryPlant, InventorySnapshot } from "@/domain/plant-catalog/inventory-service";
 import { isTransitionAllowed, nextPickerState, type PickerEvent } from "@/domain/plant-ui/picker-interaction";
-import { GardenViewer3D } from "@/components/garden-3d/GardenViewer3D";
 import { CellPicker } from "./CellPicker";
 import { GardenGrid } from "./GardenGrid";
 import { GardenSummary } from "./GardenSummary";
 import { GardenTopTabs } from "./GardenTopTabs";
 import { NeedsAttentionBanner } from "./NeedsAttentionBanner";
 import type { GardenEnvironment, PlantOption, SelectedCell, SnapshotBed, SnapshotCell } from "./types";
+
+// three.js + @react-three/fiber + @react-three/drei (plus the ~7.5MB GLB
+// model GardenScene3D preloads) are heavy enough that a static import put
+// them on the critical path for every page load, whether or not anyone
+// scrolls to the 3D panel — code-split via next/dynamic so the 2D grid
+// (the primary, always-needed workflow) hydrates and becomes interactive
+// without waiting on that chunk. ssr: false because the canvas needs real
+// WebGL/browser APIs; GardenViewer3D's own useWebGlSupport() check already
+// handles the "no WebGL" case once the chunk does load.
+const GardenViewer3D = dynamic(
+  () => import("@/components/garden-3d/GardenViewer3D").then((mod) => mod.GardenViewer3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="aspect-[4/3] w-full animate-pulse rounded-xl border xl:aspect-[3/2] 2xl:aspect-[5/4]"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-scene-bg)" }}
+      />
+    ),
+  },
+);
 
 export interface GardenViewProps {
   initialBeds: SnapshotBed[];

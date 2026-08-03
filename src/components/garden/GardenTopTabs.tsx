@@ -7,11 +7,13 @@
 // so keeping the two together means the control and its effect are never
 // more than a glance apart.
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import type { GardenJournal } from "@/domain/journal/journal-service";
 import type { InventorySnapshot } from "@/domain/plant-catalog/inventory-service";
 import { ConditionsPanel } from "./ConditionsPanel";
+import { ForecastStrip } from "./ForecastStrip";
 import { JournalPanel } from "./JournalPanel";
 import { PestPanel } from "./PestPanel";
 import { SimClockControl } from "./SimClockControl";
@@ -19,11 +21,22 @@ import { FOCUS_RING, MIN_TOUCH_TARGET } from "./ui-constants";
 import { WeatherBanner } from "./WeatherBanner";
 import type { GardenEnvironment, SnapshotBed } from "./types";
 
+// TrendsPanel pulls in recharts (~500kb uncompressed) purely for two charts
+// that only render once a user opens this tab and clicks "Generate" — every
+// other tab here mounts eagerly (see the `hidden`-not-unmounted comment
+// below), so without code-splitting, recharts rode along in the same
+// critical first-load bundle as the always-needed 2D grid. Same rationale
+// and pattern as GardenView.tsx's dynamic GardenViewer3D import.
+const TrendsPanel = dynamic(() => import("./TrendsPanel").then((mod) => mod.TrendsPanel), {
+  loading: () => <div className="h-40 w-full animate-pulse rounded-xl border" style={{ borderColor: "var(--color-border)" }} />,
+});
+
 const TABS = [
   { id: "today", label: "Today" },
   { id: "inventory", label: "Household inventory" },
   { id: "simulation", label: "What-if Planner" },
   { id: "journal", label: "Journal" },
+  { id: "trends", label: "Trends" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -82,6 +95,7 @@ export function GardenTopTabs({ environment, inventory, beds, initialJournal, di
           disabled={disabled}
         />
         <WeatherBanner environment={environment} bare />
+        <ForecastStrip forecast={environment.forecast} bare />
       </div>
       <div id="inventory-panel" role="tabpanel" aria-labelledby="inventory-tab" hidden={tab !== "inventory"}>
         <InventoryPanel inventory={inventory} disabled={disabled} onChanged={onChanged} bare />
@@ -92,6 +106,9 @@ export function GardenTopTabs({ environment, inventory, beds, initialJournal, di
       </div>
       <div id="journal-panel" role="tabpanel" aria-labelledby="journal-tab" hidden={tab !== "journal"}>
         <JournalPanel beds={beds} initialJournal={initialJournal} disabled={disabled} onChanged={onChanged} bare />
+      </div>
+      <div id="trends-panel" role="tabpanel" aria-labelledby="trends-tab" hidden={tab !== "trends"}>
+        <TrendsPanel beds={beds} inventory={inventory} disabled={disabled} bare />
       </div>
     </section>
   );

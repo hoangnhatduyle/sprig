@@ -24,6 +24,18 @@ function normalizeToUtcMidnight(date: Date): Date {
   return normalized;
 }
 
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+// How many days getForecastView (and catch-up-service.ts's pregeneration
+// step) show/generate: today plus the next 6 — a typical "week ahead" view,
+// safely inside Open-Meteo's ~16-day real forecast coverage (see
+// real-weather-provider.ts).
+export const FORECAST_WINDOW_DAYS = 7;
+
 // REAL_API falls back to PROCEDURAL when the real source can't answer for
 // this date (network failure, or the date is outside Open-Meteo's
 // historical/forecast coverage) — never throws the whole growth step out
@@ -102,6 +114,21 @@ export interface WeatherDayView {
   isSnowDay: boolean;
 }
 
+function toWeatherDayView(row: WeatherDay): WeatherDayView {
+  return {
+    date: row.date,
+    condition: row.condition,
+    tempHighC: row.tempHighC,
+    tempLowC: row.tempLowC,
+    precipitationMm: row.precipitationMm,
+    cloudCoverPct: row.cloudCoverPct,
+    humidityPct: row.humidityPct,
+    windSpeedKph: row.windSpeedKph,
+    source: row.source,
+    isSnowDay: isSnowDay(row),
+  };
+}
+
 // A pure read model for surfacing "today's weather" to the client (grid-cell-service.ts's
 // GardenSnapshot.environment) — deliberately separate from getOrGenerateWeatherDay above,
 // which writes. This function NEVER generates or refetches a WeatherDay: catchUpGrowth
@@ -115,16 +142,48 @@ export async function getWeatherDayView(prisma: PrismaClient, date: Date): Promi
   if (!row) {
     return null;
   }
-  return {
-    date: row.date,
-    condition: row.condition,
-    tempHighC: row.tempHighC,
-    tempLowC: row.tempLowC,
-    precipitationMm: row.precipitationMm,
-    cloudCoverPct: row.cloudCoverPct,
-    humidityPct: row.humidityPct,
-    windSpeedKph: row.windSpeedKph,
-    source: row.source,
-    isSnowDay: isSnowDay(row),
-  };
+  return toWeatherDayView(row);
+}
+
+// Same read-only contract as getWeatherDayView above (never generates or
+// refetches — see that function's own comment and
+// weather-read-view.test.ts's NC-SPRIG-SURFACE-READ-ONLY-WEATHER-VIEW
+// coverage): catch-up-service.ts's pregenerateForecastDays is the only thing
+// that may create these rows. A date with no cached row yet is silently
+// omitted rather than surfaced as a gap/null placeholder — in normal use
+// catchUpGrowth has already generated the whole window before this is ever
+// called, so a gap only happens before the simulation has been advanced
+// even once, same as getWeatherDayView's own null case.
+export async function getForecastView(
+  prisma: PrismaClient,
+  from: Date,
+  days: number = FORECAST_WINDOW_DAYS,
+): Promise<WeatherDayView[]> {
+  const start = normalizeToUtcMidnight(from);
+  const dates = Array.from({ length: days }, (_, i) => addUtcDays(start, i));
+
+  const rows = await prisma.weatherDay.findMany({ where: { date: { in: dates } } });
+  const rowByTime = new Map(rows.map((row) => [row.date.getTime(), row]));
+
+  return dates
+    .map((date) => rowByTime.get(date.getTime()))
+    .filter((row): row is WeatherDay => row !== undefined)
+    .map(toWeatherDayView);
+}
+
+// Read-only accessor for the Trends tab's weather chart — same "never
+// generates, gaps are just omitted" contract as getWeatherDayView and
+// getForecastView above. Unlike getForecastView (a fixed forward-looking
+// window from "today"), this takes an arbitrary since/until range since a
+// trend chart looks backward over whatever range the user picks.
+export async function getWeatherRangeView(
+  prisma: PrismaClient,
+  since: Date,
+  until: Date,
+): Promise<WeatherDayView[]> {
+  const rows = await prisma.weatherDay.findMany({
+    where: { date: { gte: normalizeToUtcMidnight(since), lte: normalizeToUtcMidnight(until) } },
+    orderBy: { date: "asc" },
+  });
+  return rows.map(toWeatherDayView);
 }

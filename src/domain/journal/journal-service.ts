@@ -162,44 +162,98 @@ export async function getGardenJournal(
   const cellFilter = options.cellId ? { id: options.cellId } : options.bedId ? { bedId: options.bedId } : undefined;
   const bedFilter = options.bedId ? { bedId: options.bedId } : undefined;
 
+  // The final page is filtered/merge-sorted/sliced across all 7 sources in
+  // JS (below) — but fetching every row from every table on every call
+  // (unbounded, growing with the garden's whole history) was the real cost.
+  // For the 5 kinds where one DB row maps to exactly one journal entry at
+  // exactly one timestamp, requesting each source's own top `offset + limit
+  // + 1` rows (ordered by that same timestamp, descending) is provably
+  // enough to reconstruct the correct global top page AND the correct
+  // hasMore flag: the true merged top-K (K = offset+limit+1 here) can never
+  // draw more than K rows from any single sorted source. EQUIPMENT
+  // (BedConditionOverride) and DISEASE (DiseaseInfection) are excluded from
+  // this cap because one row can surface two entries at two different
+  // timestamps (installed/removed, started/resolved) — a single-field
+  // ORDER BY ... LIMIT could rank a row low on its primary timestamp while
+  // its second entry is actually recent. Both tables are small (equipment
+  // installs / disease episodes, not a per-day-tick volume) so an unbounded
+  // fetch there is cheap; they still get the since/until pushdown below.
+  const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+  const offset = options.offset ?? 0;
+  const takeCap = offset + limit + 1;
+  const sinceFilter = options.since;
+  const untilFilter = options.until;
+
   const [lifecycleRows, harvestRows, careActionRows, equipmentRows, renovationRows, diseaseRows, noteRows] =
     await Promise.all([
       wantsKind("LIFECYCLE")
         ? prisma.gridCellEvent.findMany({
-            where: { cell: cellFilter, plantId: options.plantId },
+            where: { cell: cellFilter, plantId: options.plantId, occurredAt: { gte: sinceFilter, lte: untilFilter } },
             include: { cell: { include: { bed: { select: { name: true } } } }, plant: { select: { commonName: true } } },
+            orderBy: { occurredAt: "desc" },
+            take: takeCap,
           })
         : Promise.resolve([]),
       wantsKind("HARVEST")
         ? prisma.harvestRecord.findMany({
-            where: { plantId: options.plantId, cellPlanting: { cell: cellFilter } },
+            where: {
+              plantId: options.plantId,
+              cellPlanting: { cell: cellFilter },
+              harvestedAt: { gte: sinceFilter, lte: untilFilter },
+            },
             include: {
               plant: { select: { commonName: true } },
               cellPlanting: { include: { cell: { include: { bed: { select: { name: true } } } } } },
             },
+            orderBy: { harvestedAt: "desc" },
+            take: takeCap,
           })
         : Promise.resolve([]),
       wantsKind("CARE_ACTION")
         ? prisma.careActionEvent.findMany({
-            where: { bedId: options.bedId, cellId: options.cellId },
+            where: { bedId: options.bedId, cellId: options.cellId, occurredAt: { gte: sinceFilter, lte: untilFilter } },
             include: { bed: { select: { name: true } }, cell: { select: { column: true, row: true } } },
+            orderBy: { occurredAt: "desc" },
+            take: takeCap,
           })
         : Promise.resolve([]),
       wantsKind("EQUIPMENT")
         ? prisma.bedConditionOverride.findMany({
-            where: bedFilter,
+            where: {
+              ...bedFilter,
+              ...(sinceFilter || untilFilter
+                ? {
+                    OR: [
+                      { installedAt: { gte: sinceFilter, lte: untilFilter } },
+                      { removedAt: { gte: sinceFilter, lte: untilFilter } },
+                    ],
+                  }
+                : {}),
+            },
             include: { bed: { select: { name: true } } },
           })
         : Promise.resolve([]),
       wantsKind("RENOVATION")
         ? prisma.bedRenovation.findMany({
-            where: bedFilter,
+            where: { ...bedFilter, occurredAt: { gte: sinceFilter, lte: untilFilter } },
             include: { bed: { select: { name: true } } },
+            orderBy: { occurredAt: "desc" },
+            take: takeCap,
           })
         : Promise.resolve([]),
       wantsKind("DISEASE")
         ? prisma.diseaseInfection.findMany({
-            where: { cellPlanting: { plantId: options.plantId, cell: cellFilter } },
+            where: {
+              cellPlanting: { plantId: options.plantId, cell: cellFilter },
+              ...(sinceFilter || untilFilter
+                ? {
+                    OR: [
+                      { startedAt: { gte: sinceFilter, lte: untilFilter } },
+                      { resolvedAt: { gte: sinceFilter, lte: untilFilter } },
+                    ],
+                  }
+                : {}),
+            },
             include: {
               cellPlanting: {
                 include: { plant: { select: { commonName: true } }, cell: { include: { bed: { select: { name: true } } } } },
@@ -209,11 +263,13 @@ export async function getGardenJournal(
         : Promise.resolve([]),
       wantsKind("NOTE")
         ? prisma.journalNote.findMany({
-            where: { bedId: options.bedId, cellId: options.cellId },
+            where: { bedId: options.bedId, cellId: options.cellId, occurredAt: { gte: sinceFilter, lte: untilFilter } },
             include: {
               bed: { select: { name: true } },
               cell: { select: { bedId: true, column: true, row: true, bed: { select: { name: true } } } },
             },
+            orderBy: { occurredAt: "desc" },
+            take: takeCap,
           })
         : Promise.resolve([]),
     ]);
@@ -372,8 +428,6 @@ export async function getGardenJournal(
     return delta !== 0 ? delta : b.id.localeCompare(a.id);
   });
 
-  const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-  const offset = options.offset ?? 0;
   const page = filtered.slice(offset, offset + limit);
 
   return { entries: page, hasMore: filtered.length > offset + limit };

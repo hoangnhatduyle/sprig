@@ -17,7 +17,7 @@ import { getCurrentSimTime } from "@/domain/growth/sim-clock-service";
 import { getGardenLocation } from "@/domain/lighting/garden-location";
 import { computePhase, computeSunPosition, computeSunTimes } from "@/domain/lighting/sun-times";
 import type { DayNightPhase } from "@/domain/lighting/day-night-lifecycle";
-import { getWeatherDayView, type WeatherDayView } from "@/domain/weather/weather-service";
+import { getForecastView, getWeatherDayView, type WeatherDayView } from "@/domain/weather/weather-service";
 import { estimateEvapotranspirationDisplayMm } from "@/domain/soil/water-bucket-service";
 import { companionEffectsForSpecies, type CompanionEffectKind } from "@/domain/ecology/companion-catalog";
 
@@ -559,6 +559,7 @@ export interface GardenEnvironmentView {
   sunriseIso: string;
   sunsetIso: string;
   weather: WeatherDayView | null;
+  forecast: WeatherDayView[];
 }
 
 export interface GardenSnapshot {
@@ -643,6 +644,7 @@ export async function getGardenSnapshot(
   const sunPosition = computeSunPosition(location, clock.simTime);
   const phase = computePhase(location, clock.simTime);
   const weather = await getWeatherDayView(prisma, clock.simTime);
+  const forecast = await getForecastView(prisma, clock.simTime);
 
   return {
     beds: beds.map((bed) => ({
@@ -748,6 +750,7 @@ export async function getGardenSnapshot(
       sunriseIso: sunTimes.sunrise.toISOString(),
       sunsetIso: sunTimes.sunset.toISOString(),
       weather,
+      forecast,
     },
   };
 }

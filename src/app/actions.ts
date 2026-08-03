@@ -60,8 +60,10 @@ import {
 import { getGardenJournal, type GardenJournal, type JournalEntryKind } from "@/domain/journal/journal-service";
 import { createJournalNote } from "@/domain/journal/journal-note-service";
 import { getSeasonRecap, type SeasonRecap } from "@/domain/journal/season-recap-service";
+import { getYieldTrend, type YieldTrendPoint } from "@/domain/journal/yield-trend-service";
 import { JournalValidationError } from "@/domain/journal/errors";
 import { startNewSeason } from "@/domain/season/season-reset-service";
+import { getWeatherRangeView, type WeatherDayView } from "@/domain/weather/weather-service";
 import { prisma } from "@/lib/prisma";
 import { PlantImageError, removePlantImage, storePlantImage } from "@/lib/plant-images";
 import { JournalPhotoError, removeJournalPhoto, storeJournalPhoto } from "@/lib/journal-photos";
@@ -835,6 +837,46 @@ export async function getSeasonRecapAction(sinceIso: string, untilIso: string): 
   }
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   return getSeasonRecap(prisma, { since, until });
+}
+
+// Trends tab — yield-over-time chart. Unlike getSeasonRecapAction, this
+// deliberately skips catchUpGrowth: HarvestRecord rows are only ever written
+// by recordHarvestAction (a real user action), never by the growth engine,
+// so there is nothing for a catch-up pass to produce here. Every other read
+// action on this page (garden snapshot on page.tsx, any onChanged refresh)
+// already keeps the simulation current, so re-running the whole
+// findMany-plantings + pest/predator/disease pipeline on every Trends
+// "Generate" click was pure overhead — and TrendsPanel fires this alongside
+// getWeatherTrendAction via Promise.all, so it used to double that cost on
+// every click.
+export async function getYieldTrendAction(input: {
+  sinceIso: string;
+  untilIso: string;
+  bedId?: string;
+  plantId?: string;
+}): Promise<YieldTrendPoint[] | null> {
+  const since = new Date(input.sinceIso);
+  const until = new Date(input.untilIso);
+  if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime()) || since > until) {
+    return null;
+  }
+  return getYieldTrend(prisma, { since, until, bedId: input.bedId, plantId: input.plantId });
+}
+
+// Trends tab — weather-trends chart. Weather has no per-bed dimension (one
+// simulated location for the whole garden), so no bedId/plantId filter here.
+// Also deliberately skips catchUpGrowth (see getYieldTrendAction's comment
+// above) — getWeatherRangeView's own contract already treats a missing day
+// as "omit it, don't gap-fill" (weather-service.ts), and by the time this
+// tab is reachable the page load / any prior onChanged refresh has already
+// caught the simulation up through today.
+export async function getWeatherTrendAction(sinceIso: string, untilIso: string): Promise<WeatherDayView[] | null> {
+  const since = new Date(sinceIso);
+  const until = new Date(untilIso);
+  if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime()) || since > until) {
+    return null;
+  }
+  return getWeatherRangeView(prisma, since, until);
 }
 
 export interface StartNewSeasonResult extends ActionResult {
