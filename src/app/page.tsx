@@ -5,6 +5,12 @@ import { getGardenJournal } from "@/domain/journal/journal-service";
 import { getInventorySnapshot } from "@/domain/plant-catalog/inventory-service";
 import { prisma } from "@/lib/prisma";
 
+// This page runs a write (catchUpGrowth) on every load, so it must never be
+// statically prerendered — build-time execution would run that write against
+// whatever DATABASE_URL the build environment sees, and fail outright if
+// migrations haven't been applied there yet (as happened on Vercel).
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   // Mirrors refreshGardenSnapshotAction/refreshWorkspaceAction's own
   // catch-up-before-read order (src/app/actions.ts) so first paint never
