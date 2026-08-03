@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { FastForward, Pause, Play, RotateCcw } from "lucide-react";
 import { resetSimClockToNowAction, setClockRateAction } from "@/app/actions";
 import { FOCUS_RING, MIN_TOUCH_TARGET } from "./ui-constants";
+import { useHydrated } from "./use-hydrated";
 
 const RATE_PRESETS = [
   { rate: 0, label: "Paused", icon: Pause },
@@ -30,14 +31,28 @@ const AUTO_ADVANCE_POLL_MS = 25_000;
 // comment below), never a network call.
 const CLOCK_TICK_MS = 1000;
 
-function formatLiveClock(date: Date): string {
+// `useLocalZone` false pins UTC for the one render that has to byte-for-byte
+// match the server (see useHydrated) — the server (Vercel, always UTC) and a
+// visitor's browser (their own zone) formatting the same Date via
+// `undefined` produce different text, which is a hydration mismatch (React
+// error #418), not just a cosmetic difference. Once hydrated, true switches
+// to the viewer's actual local zone (`undefined`) so the "real time" clock
+// shows their real wall-clock time instead of UTC.
+function formatLiveClock(date: Date, useLocalZone: boolean): string {
+  const timeZone = useLocalZone ? undefined : "UTC";
   const datePart = date.toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone,
   });
-  const timePart = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const timePart = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone,
+  });
   return `${datePart} · ${timePart}`;
 }
 
@@ -49,6 +64,7 @@ export interface SimClockControlProps {
 }
 
 export function SimClockControl({ clockRate, simTimeIso, onAdvance, disabled = false }: SimClockControlProps) {
+  const hydrated = useHydrated();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // Remembers the last nonzero rate the user picked, so the Pause/Resume
@@ -162,7 +178,7 @@ export function SimClockControl({ clockRate, simTimeIso, onAdvance, disabled = f
         Simulation speed
       </label>
       <p className="font-mono text-lg" style={{ color: "var(--color-text)" }} aria-live="off">
-        {formatLiveClock(liveSimTime)}
+        {formatLiveClock(liveSimTime, hydrated)}
       </p>
       {/* Dropdown and buttons are siblings in one row (not the label wrapping
           the select) so `items-center` aligns them by their own shared

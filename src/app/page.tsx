@@ -16,7 +16,10 @@ export default async function Home() {
   // catch-up-before-read order (src/app/actions.ts) so first paint never
   // shows a pre-simulation state — without this, environment.weather would
   // be null until the user's first click-triggered refresh.
-  await catchUpGrowth(prisma);
+  // REAL_API, not catchUpGrowth's own PROCEDURAL default: that default is
+  // what lets the test suite call catchUpGrowth without mocking fetch or
+  // hitting the network (src/app/actions.ts's read actions do the same).
+  await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [snapshot, inventory, journal] = await Promise.all([
     getGardenSnapshot(prisma),
     getInventorySnapshot(prisma),

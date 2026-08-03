@@ -423,7 +423,7 @@ export function InventoryPanel({ inventory, disabled, onChanged, bare = false }:
             {yields.map((entry) => (
               <li key={entry.id} className="rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
                 <div className="flex justify-between gap-3"><strong>{entry.plantName}</strong><span>{entry.amount} {entry.unit}</span></div>
-                <p style={{ color: "var(--color-text-muted)" }}>{new Date(entry.harvestedAt).toLocaleDateString()} · {entry.bedName}, column {entry.column}, row {entry.row}</p>
+                <p style={{ color: "var(--color-text-muted)" }}>{new Date(entry.harvestedAt).toLocaleDateString(undefined, { timeZone: "UTC" })} · {entry.bedName}, column {entry.column}, row {entry.row}</p>
                 {entry.notes && <p className="mt-1">{entry.notes}</p>}
               </li>
             ))}

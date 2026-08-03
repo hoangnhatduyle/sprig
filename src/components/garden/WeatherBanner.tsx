@@ -10,6 +10,7 @@
 
 import { Cloud, CloudLightning, CloudRain, CloudSun, Droplets, Satellite, Dices, Snowflake, Sun, Thermometer, Wind } from "lucide-react";
 import type { GardenEnvironment } from "./types";
+import { useHydrated } from "./use-hydrated";
 
 export const CONDITION_ICON: Record<string, typeof Sun> = {
   CLEAR: Sun,
@@ -34,12 +35,27 @@ export const PHASE_LABEL: Record<GardenEnvironment["phase"], string> = {
   NIGHT: "Night",
 };
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+// `useLocalZone` false pins UTC for the render that has to byte-for-byte
+// match the server (see useHydrated) — without it, the server (always UTC)
+// and a visitor's browser (their own zone) render different text for the
+// same Date, which is a hydration mismatch (React error #418). Once
+// hydrated, true switches to the viewer's actual local zone so sunrise/
+// sunset read as real wall-clock time instead of UTC.
+function formatTime(iso: string, useLocalZone: boolean): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: useLocalZone ? undefined : "UTC",
+  });
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+function formatDate(iso: string, useLocalZone: boolean): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: useLocalZone ? undefined : "UTC",
+  });
 }
 
 export interface WeatherBannerProps {
@@ -51,6 +67,7 @@ export interface WeatherBannerProps {
 }
 
 export function WeatherBanner({ environment, bare = false }: WeatherBannerProps) {
+  const hydrated = useHydrated();
   const { weather } = environment;
   const ConditionIcon = weather ? (CONDITION_ICON[weather.condition] ?? Cloud) : Cloud;
   const Wrapper = bare ? "div" : "section";
@@ -77,11 +94,11 @@ export function WeatherBanner({ environment, bare = false }: WeatherBannerProps)
             </p>
           )}
           <h2 id="weather-heading" className="text-2xl" style={{ fontFamily: "var(--font-display)", color: "var(--color-text)" }}>
-            {formatDate(environment.simTimeIso)} · {PHASE_LABEL[environment.phase]}
+            {formatDate(environment.simTimeIso, hydrated)} · {PHASE_LABEL[environment.phase]}
           </h2>
         </div>
         <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          Sunrise {formatTime(environment.sunriseIso)} · Sunset {formatTime(environment.sunsetIso)}
+          Sunrise {formatTime(environment.sunriseIso, hydrated)} · Sunset {formatTime(environment.sunsetIso, hydrated)}
         </p>
       </div>
 

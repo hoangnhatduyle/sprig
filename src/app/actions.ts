@@ -169,7 +169,11 @@ export async function removePlantingAction(target: CellTarget): Promise<ActionRe
 // domain's maybeTriggerDailyCycle is invoked on read rather than by a
 // background worker.
 export async function refreshGardenSnapshotAction(): Promise<GardenSnapshot> {
-  await catchUpGrowth(prisma);
+  // REAL_API here, not catchUpGrowth's own PROCEDURAL default — that
+  // default is what lets the test suite call catchUpGrowth without mocking
+  // fetch or hitting the network. Every real app entry point opts into real
+  // weather explicitly instead of the shared default changing under them.
+  await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   return getGardenSnapshot(prisma);
 }
 
@@ -184,7 +188,7 @@ export interface WorkspaceSnapshot {
 }
 
 export async function refreshWorkspaceAction(): Promise<WorkspaceSnapshot> {
-  await catchUpGrowth(prisma);
+  await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [garden, inventory] = await Promise.all([
     getGardenSnapshot(prisma),
     getInventorySnapshot(prisma),
@@ -763,7 +767,7 @@ export interface GardenJournalQuery {
 // own comment) — DiseaseInfection/GridCellEvent rows for elapsed simulated
 // days only exist once catch-up has run.
 export async function getGardenJournalAction(query: GardenJournalQuery = {}): Promise<GardenJournal> {
-  await catchUpGrowth(prisma);
+  await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   let cellId: string | undefined;
   if (query.bedId && query.column != null && query.row != null) {
     const cell = await prisma.gridCell.findUnique({
@@ -829,7 +833,7 @@ export async function getSeasonRecapAction(sinceIso: string, untilIso: string): 
   if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime()) || since > until) {
     return null;
   }
-  await catchUpGrowth(prisma);
+  await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   return getSeasonRecap(prisma, { since, until });
 }
 

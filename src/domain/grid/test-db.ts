@@ -8,8 +8,19 @@ export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   "postgresql://sprig:sprig@localhost:5432/sprig?schema=test";
 
+// The `?schema=` query param above is a Prisma-URL convention that only
+// Prisma's own query engine parses. @prisma/adapter-pg hands the connection
+// string straight to node-postgres, which has no idea what `schema=` means
+// and silently ignores it, leaving every query on the connection's default
+// search_path ("public") — so without this, every test in the suite was
+// actually reading and deleting rows in the real dev schema instead of the
+// "test" schema its name and every reset function's comments claim. The
+// schema has to be passed via PrismaPg's own `options.schema` (its
+// documented, adapter-level mechanism for this) to actually take effect.
+const TEST_SCHEMA = new URL(TEST_DATABASE_URL).searchParams.get("schema") ?? "public";
+
 export function createTestPrismaClient(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: TEST_DATABASE_URL });
+  const adapter = new PrismaPg({ connectionString: TEST_DATABASE_URL }, { schema: TEST_SCHEMA });
   return new PrismaClient({ adapter });
 }
 

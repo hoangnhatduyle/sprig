@@ -169,7 +169,8 @@ export function SeasonRecapPanel({
       {recap && (
         <div data-print-recap className="flex flex-col gap-4">
           <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {new Date(recap.sinceIso).toLocaleDateString()} – {new Date(recap.untilIso).toLocaleDateString()}
+            {new Date(recap.sinceIso).toLocaleDateString(undefined, { timeZone: "UTC" })} –{" "}
+            {new Date(recap.untilIso).toLocaleDateString(undefined, { timeZone: "UTC" })}
           </p>
 
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">

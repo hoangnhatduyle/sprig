@@ -13,6 +13,10 @@ import { WeatherProviderUnavailableError } from "./errors";
 
 const ARCHIVE_BASE_URL = "https://archive-api.open-meteo.com/v1/archive";
 const FORECAST_BASE_URL = "https://api.open-meteo.com/v1/forecast";
+// Without this, a hung Open-Meteo response would stall the request
+// indefinitely — catch-up-service.ts can call getDay up to MAX_CATCH_UP_DAYS
+// (60) times in a row, so one slow response shouldn't block the rest.
+const REQUEST_TIMEOUT_MS = 8_000;
 // cloud_cover_mean/relative_humidity_2m_mean are requested but not
 // documented as guaranteed on every Open-Meteo endpoint — parsed
 // defensively below with a reasonable fallback rather than throwing, so a
@@ -98,7 +102,7 @@ export class RealWeatherProvider implements WeatherProvider {
 
     let response: Response;
     try {
-      response = await fetch(url.toString());
+      response = await fetch(url.toString(), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch (error: unknown) {
       throw new WeatherProviderUnavailableError(
         `Could not reach Open-Meteo for ${dateParam}: ${error instanceof Error ? error.message : String(error)}`,
