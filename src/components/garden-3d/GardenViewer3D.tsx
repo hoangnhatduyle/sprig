@@ -286,7 +286,7 @@ export function GardenViewer3D({ beds, environment, plants, selectedCell, disabl
           <p>Click a cell in the 3D view to select it — the picker above will open.</p>
         )}
       </div>
-      <Viewer3DLegend beds={beds} />
+      <Viewer3DLegend />
     </section>
   );
 }

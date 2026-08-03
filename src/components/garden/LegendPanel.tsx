@@ -19,17 +19,21 @@ import type { LegendSection, LegendVisibilityContext } from "./legend-sections";
 // Every entry's swatch is aria-hidden with the adjacent visible text as the
 // accessible name — never ship a color-only row.
 export function LegendPanel({
-  sections,
+  sections = [],
   ctx,
   title = "Legend",
   extra,
 }: {
-  sections: LegendSection[];
-  ctx: LegendVisibilityContext;
+  // Optional: Viewer3DLegend has no color-key rows of its own to show (that
+  // full key lives in GardenGrid's 2D Legend instead — see that file's own
+  // comment on why duplicating it here read as clutter) and renders only
+  // `extra`, so it never has a LegendVisibilityContext to pass either.
+  sections?: LegendSection[];
+  ctx?: LegendVisibilityContext;
   title?: string;
   extra?: ReactNode;
 }) {
-  const visibleSections = sections.filter((section) => section.show(ctx));
+  const visibleSections = ctx ? sections.filter((section) => section.show(ctx)) : [];
   return (
     <details
       className="rounded-lg border p-3 text-xs"
