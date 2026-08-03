@@ -55,7 +55,10 @@ function makeBed(id: string, name: string, cells: SnapshotCell[]): SnapshotBed {
 // garden snapshot) since assignment also spends inventory stock that must
 // be reflected everywhere seed counts are shown.
 function workspaceSnapshot(beds: SnapshotBed[], seeds: InventoryPlant[] = PLANTS) {
-  return { garden: { beds, environment: TEST_ENVIRONMENT }, inventory: { seeds, yields: [] } };
+  return {
+    garden: { beds, environment: TEST_ENVIRONMENT, rainBarrels: [] },
+    inventory: { seeds, yields: [] },
+  };
 }
 
 describe("SPEC-PLANTUI-001", () => {

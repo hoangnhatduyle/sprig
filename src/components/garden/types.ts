@@ -13,6 +13,7 @@ export type SnapshotInfection = SnapshotCell["plantings"][number]["infections"][
 export type SnapshotCompanionEffect = SnapshotCell["plantings"][number]["companionEffects"][number];
 export type SnapshotSoilProfile = NonNullable<SnapshotBed["soilProfile"]>;
 export type GardenEnvironment = GardenSnapshot["environment"];
+export type SnapshotRainBarrel = GardenSnapshot["rainBarrels"][number];
 export type JournalEntry = GardenJournal["entries"][number];
 
 export type PlantOption = Pick<InventoryPlant, "id" | "commonName"> &

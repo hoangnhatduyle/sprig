@@ -48,6 +48,7 @@ export default async function Home() {
       <GardenView
         initialBeds={snapshot.beds}
         initialEnvironment={snapshot.environment}
+        initialRainBarrels={snapshot.rainBarrels}
         initialPlants={inventory.seeds}
         initialInventory={inventory}
         initialJournal={journal}

@@ -4,7 +4,8 @@ import { createTestPrismaClient } from "./test-db";
 import { resetGridTables } from "../grid/test-db";
 import { resetIrrigationTables } from "./test-db";
 import { seedBed } from "../grid/grid-cell-service";
-import { addWater } from "./rain-barrel-service";
+import { addWater, applyDailyRainfall, drawWater } from "./rain-barrel-service";
+import { InsufficientWaterError } from "./errors";
 import { applySimulationWater, getWaterSnapshot, maybeTriggerDailyCycle } from "./irrigation-service";
 import { isTransitionAllowed as isRainBarrelTransitionAllowed } from "./rain-barrel-lifecycle";
 import { isTransitionAllowed as isCycleTransitionAllowed } from "./irrigation-cycle-lifecycle";
@@ -35,10 +36,10 @@ afterAll(async () => {
 describe("SPEC-IRRIGATION-001", () => {
   it("T-SPEC-IRRIGATION-001-AC-AC_4: overflow beyond combined remaining capacity is recorded, not silently discarded", async () => {
     const barrelA = await prisma.rainBarrel.create({
-      data: { capacityGallons: 50, currentGallons: 45, status: "PARTIAL" },
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 45, status: "PARTIAL" },
     });
     const barrelB = await prisma.rainBarrel.create({
-      data: { capacityGallons: 50, currentGallons: 48, status: "PARTIAL" },
+      data: { yardSlot: 2, capacityGallons: 50, currentGallons: 48, status: "PARTIAL" },
     });
 
     // Simulated rainfall: 10 gallons on barrelA (only 5 gal of headroom left).
@@ -238,7 +239,7 @@ describe("SPEC-IRRIGATION-001", () => {
   });
 
   it("addWater rejects a non-finite amount instead of writing an Infinity-valued journal row", async () => {
-    const barrel = await prisma.rainBarrel.create({ data: { capacityGallons: 50 } });
+    const barrel = await prisma.rainBarrel.create({ data: { yardSlot: 1, capacityGallons: 50 } });
     await expect(addWater(prisma, barrel.id, Infinity)).rejects.toThrow();
   });
 
@@ -251,6 +252,146 @@ describe("SPEC-IRRIGATION-001", () => {
     const eightAM = new Date();
     eightAM.setHours(8, 0, 0, 0);
     await expect(maybeTriggerDailyCycle(prisma, system.id, eightAM)).rejects.toThrow();
+  });
+
+  it("drawWater decrements currentGallons, records a DRAW_WATER event, and moves FULL to PARTIAL", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 50, status: "FULL" },
+    });
+
+    await drawWater(prisma, barrel.id, 20);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.currentGallons).toBe(30);
+    expect(updated.status).toBe("PARTIAL");
+
+    const event = await prisma.rainBarrelEvent.findFirst({
+      where: { barrelId: barrel.id, eventType: "DRAW_WATER" },
+    });
+    expect(event?.amountGallons).toBe(20);
+  });
+
+  it("drawWater keeps a barrel PARTIAL when the draw doesn't fully empty it", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 30, status: "PARTIAL" },
+    });
+
+    await drawWater(prisma, barrel.id, 10);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.currentGallons).toBe(20);
+    expect(updated.status).toBe("PARTIAL");
+  });
+
+  it("drawWater draining a barrel to exactly zero transitions it to EMPTY", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 15, status: "PARTIAL" },
+    });
+
+    await drawWater(prisma, barrel.id, 15);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.currentGallons).toBe(0);
+    expect(updated.status).toBe("EMPTY");
+  });
+
+  it("drawWater draining a FULL barrel to zero passes through PARTIAL rather than jumping straight to EMPTY", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 50, status: "FULL" },
+    });
+
+    await drawWater(prisma, barrel.id, 50);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.currentGallons).toBe(0);
+    expect(updated.status).toBe("EMPTY");
+  });
+
+  it("drawWater settles an OVERFLOWING barrel to FULL before continuing the draw", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 50, status: "OVERFLOWING" },
+    });
+
+    await drawWater(prisma, barrel.id, 10);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.currentGallons).toBe(40);
+    expect(updated.status).toBe("PARTIAL");
+  });
+
+  it("drawWater blocks an over-draw instead of letting currentGallons go negative (dry-barrel fallback)", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 10, status: "PARTIAL" },
+    });
+
+    await expect(drawWater(prisma, barrel.id, 25)).rejects.toThrow(InsufficientWaterError);
+
+    const unchanged = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(unchanged.currentGallons).toBe(10);
+    expect(unchanged.status).toBe("PARTIAL");
+  });
+
+  it("drawWater rejects a non-finite or non-positive amount", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 10, status: "PARTIAL" },
+    });
+
+    await expect(drawWater(prisma, barrel.id, Infinity)).rejects.toThrow();
+    await expect(drawWater(prisma, barrel.id, 0)).rejects.toThrow();
+    await expect(drawWater(prisma, barrel.id, -5)).rejects.toThrow();
+  });
+
+  it("applyDailyRainfall converts precipitation over the catchment area into gallons via addWater", async () => {
+    // 25.4mm (1 inch) over a 300 sq ft catchment: 1 * 300 * 0.623 = 186.9 gal.
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 300, currentGallons: 0, catchmentAreaSqFt: 300, status: "EMPTY" },
+    });
+
+    await applyDailyRainfall(prisma, barrel.id, 25.4);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.currentGallons).toBeCloseTo(186.9, 5);
+    expect(updated.status).toBe("PARTIAL");
+  });
+
+  it("applyDailyRainfall with zero precipitation settles an OVERFLOWING barrel to FULL via RAIN_STOP", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 50, status: "OVERFLOWING" },
+    });
+
+    await applyDailyRainfall(prisma, barrel.id, 0);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.status).toBe("FULL");
+    expect(updated.currentGallons).toBe(50);
+
+    const event = await prisma.rainBarrelEvent.findFirst({
+      where: { barrelId: barrel.id, eventType: "RAIN_STOP" },
+    });
+    expect(event).not.toBeNull();
+  });
+
+  it("applyDailyRainfall with zero precipitation leaves a non-overflowing barrel untouched", async () => {
+    const barrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, capacityGallons: 50, currentGallons: 20, status: "PARTIAL" },
+    });
+
+    await applyDailyRainfall(prisma, barrel.id, 0);
+
+    const updated = await prisma.rainBarrel.findUniqueOrThrow({ where: { id: barrel.id } });
+    expect(updated.status).toBe("PARTIAL");
+    expect(updated.currentGallons).toBe(20);
+
+    const events = await prisma.rainBarrelEvent.findMany({ where: { barrelId: barrel.id } });
+    expect(events).toHaveLength(0);
+  });
+
+  it("the draw_water/reach_empty lifecycle edges added for drawWater are exactly what's allowed", () => {
+    expect(isRainBarrelTransitionAllowed("PARTIAL", "draw_water")).toBe(true);
+    expect(isRainBarrelTransitionAllowed("OVERFLOWING", "draw_water")).toBe(true);
+    expect(isRainBarrelTransitionAllowed("PARTIAL", "reach_empty")).toBe(true);
+    // EMPTY still has no legal draw_water hop — you can't draw from nothing.
+    expect(isRainBarrelTransitionAllowed("EMPTY", "draw_water")).toBe(false);
   });
 
   // NOTE: addWater's optimistic-concurrency guard (conditional updateMany +

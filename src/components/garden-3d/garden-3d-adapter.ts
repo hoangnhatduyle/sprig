@@ -7,7 +7,8 @@ import type { CellStatus } from "@/domain/grid/planting-lifecycle";
 import type { ConditionOverrideKind, PlantingGrowthView } from "@/domain/grid/grid-cell-service";
 import { cellNodeName, parseCellNodeName, type BedSide } from "@/domain/garden-3d/cell-node-mapping";
 import { pestSwarmVisual, predatorSwarmVisual, type PestSwarmVisual } from "@/domain/garden-3d/pest-swarm-3d";
-import type { SelectedCell, SnapshotBed } from "@/components/garden/types";
+import { rainBarrelFillFraction } from "@/domain/garden-3d/rain-barrel-fill";
+import type { SelectedCell, SnapshotBed, SnapshotRainBarrel } from "@/components/garden/types";
 
 export interface CellRenderState {
   bedId: string;
@@ -129,6 +130,29 @@ export function buildPredatorSwarmRenderStates(beds: readonly SnapshotBed[]): Ma
     bySide.set(bedSide, predatorSwarmVisual(bed.predators));
   }
   return bySide;
+}
+
+export interface RainBarrelRenderState {
+  id: string;
+  fillFraction: number;
+}
+
+// Rain barrels are standalone yard objects, not bed-scoped equipment (see
+// RainBarrelPlacement's own doc comment in GardenScene3D.tsx) — keyed by
+// yardSlot (the stable RainBarrel_<n>_* GLB node mapping), not BedSide, so
+// this deliberately doesn't follow buildEquipmentRenderStates' bed-grouping
+// shape above.
+export function buildRainBarrelRenderStates(
+  rainBarrels: readonly SnapshotRainBarrel[],
+): Map<number, RainBarrelRenderState> {
+  const byYardSlot = new Map<number, RainBarrelRenderState>();
+  for (const barrel of rainBarrels) {
+    byYardSlot.set(barrel.yardSlot, {
+      id: barrel.id,
+      fillFraction: rainBarrelFillFraction(barrel.currentGallons, barrel.capacityGallons),
+    });
+  }
+  return byYardSlot;
 }
 
 // The reverse direction: a clicked GLB node name -> the SelectedCell shape

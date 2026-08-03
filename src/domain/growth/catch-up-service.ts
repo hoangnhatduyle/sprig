@@ -25,6 +25,7 @@ import {
 import type { BiologyState, PhenologyStage, SpeciesGrowthParams } from "./growth-engine-service";
 import { runOneDayForPlanting, type DailyEnvironmentState } from "./daily-step-orchestrator";
 import { getCurrentSimTime } from "./sim-clock-service";
+import { applyDailyRainfall } from "@/domain/irrigation/rain-barrel-service";
 import { getDiseaseDefinition } from "@/domain/disease/disease-catalog";
 import {
   conditionMatchForDisease,
@@ -149,6 +150,42 @@ async function catchUpWeatherDays(
 // row itself. getOrGenerateWeatherDay's own REAL_API -> PROCEDURAL fallback
 // (real-weather-provider.ts) means this never throws just because a date is
 // outside Open-Meteo's real coverage window.
+// Rain barrels are a whole-garden concept like weather, not per-planting —
+// caught up unconditionally alongside catchUpWeatherDays so a garden with
+// zero active plantings still fills/settles its barrels (same reasoning as
+// that function's own comment above). Each barrel tracks its own
+// rainfallAppliedThroughDate cursor (mirrors PlantingBiologyState's
+// updatedThroughDate) so a day's precipitation is never applied twice across
+// repeated catch-up calls. On a barrel's very first-ever catch-up there's no
+// prior day to backfill from — same "generate just today" fallback
+// catchUpWeatherDays uses — since a barrel only starts existing once it's
+// created, backfilling arbitrary history for it would double-count rain that
+// (from the barrel's perspective) never fell while it existed.
+async function catchUpRainBarrels(
+  prisma: PrismaClient,
+  location: GardenLocationCoords,
+  through: Date,
+  weatherSource: WeatherSourcePreference,
+): Promise<void> {
+  const barrels = await prisma.rainBarrel.findMany();
+  for (const barrel of barrels) {
+    let cursor = barrel.rainfallAppliedThroughDate
+      ? addUtcDays(startOfUtcDay(barrel.rainfallAppliedThroughDate), 1)
+      : through;
+    let daysStepped = 0;
+    while (cursor <= through && daysStepped < MAX_CATCH_UP_DAYS) {
+      const weather = await getOrGenerateWeatherDay(prisma, location, cursor, weatherSource);
+      await applyDailyRainfall(prisma, barrel.id, weather.precipitationMm);
+      await prisma.rainBarrel.update({
+        where: { id: barrel.id },
+        data: { rainfallAppliedThroughDate: cursor },
+      });
+      cursor = addUtcDays(cursor, 1);
+      daysStepped += 1;
+    }
+  }
+}
+
 async function pregenerateForecastDays(
   prisma: PrismaClient,
   location: GardenLocationCoords,
@@ -223,6 +260,7 @@ export async function catchUpGrowth(
   const weatherSource: WeatherSourcePreference = options.weatherSource ?? "PROCEDURAL";
   const location = await getGardenLocation(prisma);
   await catchUpWeatherDays(prisma, location, through, weatherSource);
+  await catchUpRainBarrels(prisma, location, through, weatherSource);
   await pregenerateForecastDays(prisma, location, through, weatherSource);
 
   const plantings = await prisma.cellPlanting.findMany({

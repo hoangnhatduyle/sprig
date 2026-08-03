@@ -19,7 +19,8 @@ export type RainBarrelTransitionEvent =
   | "add_water"
   | "reach_capacity"
   | "rain_stop"
-  | "draw_water";
+  | "draw_water"
+  | "reach_empty";
 
 interface TransitionRule {
   from: RainBarrelStatus;
@@ -27,6 +28,12 @@ interface TransitionRule {
   to: RainBarrelStatus;
 }
 
+// draw_water needs the same self-loop-vs-threshold split add_water already
+// has (add_water/reach_capacity): a draw that doesn't fully empty the barrel
+// must stay PARTIAL via the same event name (draw_water) that also produced
+// FULL -> PARTIAL, so it can't share an entry with the "drains to exactly
+// zero" case — that case gets its own event, reach_empty, exactly mirroring
+// why reach_capacity is distinct from add_water.
 const TRANSITIONS: readonly TransitionRule[] = [
   { from: "EMPTY", event: "add_water", to: "PARTIAL" },
   { from: "PARTIAL", event: "add_water", to: "PARTIAL" },
@@ -34,7 +41,13 @@ const TRANSITIONS: readonly TransitionRule[] = [
   { from: "FULL", event: "add_water", to: "OVERFLOWING" },
   { from: "OVERFLOWING", event: "rain_stop", to: "FULL" },
   { from: "FULL", event: "draw_water", to: "PARTIAL" },
-  { from: "PARTIAL", event: "draw_water", to: "EMPTY" },
+  { from: "PARTIAL", event: "draw_water", to: "PARTIAL" },
+  { from: "PARTIAL", event: "reach_empty", to: "EMPTY" },
+  // OVERFLOWING and FULL both hold currentGallons === capacityGallons (the
+  // excess above capacity is only ever journaled, never stored) — draining
+  // from OVERFLOWING settles it to FULL first, mirroring how filling must
+  // hop through reach_capacity before it can reach OVERFLOWING at all.
+  { from: "OVERFLOWING", event: "draw_water", to: "FULL" },
 ];
 
 export function isTransitionAllowed(

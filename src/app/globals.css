@@ -76,6 +76,20 @@
   --health-stressed: oklch(66% 0.16 45);
   --health-critical: oklch(52% 0.19 25);
 
+  /* Rain barrel water gauge (SPEC-IRRIGATION-001): a cyan/teal hue (205),
+     deliberately distinct from --status-planted-* (250, indigo-blue) so a
+     water fill never reads as a mis-tinted planted cell at a glance.
+     OVERFLOWING reuses --color-danger-* rather than a new hue — it's the
+     same "needs attention" signal as everywhere else, not a fourth color
+     family. */
+  --rainbarrel-empty-bg: oklch(93% 0.008 92);
+  --rainbarrel-empty-border: oklch(80% 0.015 92);
+  --rainbarrel-partial-bg: oklch(88% 0.06 205);
+  --rainbarrel-partial-border: oklch(58% 0.1 205);
+  --rainbarrel-full-bg: oklch(78% 0.09 205);
+  --rainbarrel-full-border: oklch(46% 0.11 205);
+  --rainbarrel-fill: oklch(58% 0.13 205);
+
   --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
   --font-body: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
@@ -133,6 +147,14 @@
     --health-watch: oklch(80% 0.13 85);
     --health-stressed: oklch(70% 0.16 45);
     --health-critical: oklch(62% 0.19 25);
+
+    --rainbarrel-empty-bg: oklch(30% 0.015 92);
+    --rainbarrel-empty-border: oklch(42% 0.02 92);
+    --rainbarrel-partial-bg: oklch(36% 0.08 205);
+    --rainbarrel-partial-border: oklch(62% 0.11 205);
+    --rainbarrel-full-bg: oklch(46% 0.1 205);
+    --rainbarrel-full-border: oklch(74% 0.11 205);
+    --rainbarrel-fill: oklch(68% 0.12 205);
   }
 }
 

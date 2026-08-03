@@ -38,7 +38,16 @@ import { GardenGrid } from "./GardenGrid";
 import { GardenSummary } from "./GardenSummary";
 import { GardenTopTabs } from "./GardenTopTabs";
 import { NeedsAttentionBanner } from "./NeedsAttentionBanner";
-import type { GardenEnvironment, PlantOption, SelectedCell, SnapshotBed, SnapshotCell } from "./types";
+import { RainBarrelPanel } from "./RainBarrelPanel";
+import { FOCUS_RING, MIN_TOUCH_TARGET } from "./ui-constants";
+import type {
+  GardenEnvironment,
+  PlantOption,
+  SelectedCell,
+  SnapshotBed,
+  SnapshotCell,
+  SnapshotRainBarrel,
+} from "./types";
 
 // three.js + @react-three/fiber + @react-three/drei (plus the ~7.5MB GLB
 // model GardenScene3D preloads) are heavy enough that a static import put
@@ -64,6 +73,7 @@ const GardenViewer3D = dynamic(
 export interface GardenViewProps {
   initialBeds: SnapshotBed[];
   initialEnvironment: GardenEnvironment;
+  initialRainBarrels?: SnapshotRainBarrel[];
   initialPlants: PlantOption[];
   initialInventory?: InventorySnapshot;
   initialJournal?: GardenJournal;
@@ -121,6 +131,7 @@ function pickerUiReducer(state: PickerUiState, action: PickerUiAction): PickerUi
 export function GardenView({
   initialBeds,
   initialEnvironment,
+  initialRainBarrels,
   initialPlants,
   initialInventory,
   initialJournal,
@@ -130,11 +141,19 @@ export function GardenView({
 }: GardenViewProps) {
   const [beds, setBeds] = useState<SnapshotBed[]>(initialBeds);
   const [environment, setEnvironment] = useState<GardenEnvironment>(initialEnvironment);
+  const [rainBarrels, setRainBarrels] = useState<SnapshotRainBarrel[]>(initialRainBarrels ?? []);
   const [inventory, setInventory] = useState<InventorySnapshot>(
     initialInventory ?? { seeds: initialPlants as InventoryPlant[], yields: [] },
   );
   const plants = initialInventory ? inventory.seeds : initialPlants;
   const [picker, dispatch] = useReducer(pickerUiReducer, { status: "IDLE" });
+  // Rain barrels moved from an always-visible banner (which pushed the drag-
+  // and-drop bed grid down, getting in the way when dropping seeds from
+  // inventory) into a tab alongside the bed layout instead — the 3D viewer
+  // deliberately stays outside this tab switch and always shows the whole
+  // garden, same as it already ignores whether the picker or summary is
+  // showing in this same left-column slot.
+  const [leftTab, setLeftTab] = useState<"bedLayout" | "rainBarrels">("bedLayout");
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -344,6 +363,7 @@ export function GardenView({
     const snapshot = await refreshWorkspace();
     setBeds(snapshot.garden.beds);
     setEnvironment(snapshot.garden.environment);
+    setRainBarrels(snapshot.garden.rainBarrels);
     setInventory(snapshot.inventory);
     if (selectedCell) {
       const bed = snapshot.garden.beds.find((item) => item.id === selectedCell.bedId);
@@ -434,6 +454,33 @@ export function GardenView({
       className="flex flex-col gap-8 xl:grid xl:grid-cols-[minmax(0,7fr)_minmax(30rem,13fr)] xl:items-start xl:gap-8 2xl:gap-10"
     >
       <div className="@container flex min-w-0 flex-col gap-5 sm:gap-6">
+        <div role="tablist" aria-label="Garden view" className="flex gap-2 border-b" style={{ borderColor: "var(--color-border)" }}>
+          {(
+            [
+              { id: "bedLayout", label: "Bed Layout" },
+              { id: "rainBarrels", label: "Rain Barrels" },
+            ] as const
+          ).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`${id}-tab`}
+              aria-selected={leftTab === id}
+              aria-controls={`${id}-panel`}
+              onClick={() => setLeftTab(id)}
+              className={`${MIN_TOUCH_TARGET} rounded-t-md border border-b-0 px-4 text-sm font-semibold ${FOCUS_RING}`}
+              style={{
+                borderColor: "var(--color-border)",
+                background: leftTab === id ? "var(--color-surface-raised)" : "transparent",
+                color: leftTab === id ? "var(--color-text)" : "var(--color-text-muted)",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div id="bedLayout-panel" role="tabpanel" aria-labelledby="bedLayout-tab" hidden={leftTab !== "bedLayout"} className="flex flex-col gap-5 sm:gap-6">
         <div role="status" aria-live="polite" className="sr-only">
           {statusMessage}
         </div>
@@ -444,7 +491,7 @@ export function GardenView({
           disabled={isSubmitting}
           onCellClick={handleCellClick}
         />
-        {selectedCell ? (
+        {selectedCell && (
           <div ref={pickerPanelRef} className="scroll-mt-6">
             <CellPicker
               cell={selectedCell}
@@ -469,14 +516,21 @@ export function GardenView({
               createJournalNote={createJournalNoteAction}
             />
           </div>
-        ) : (
-          <GardenSummary beds={beds} plants={plants} />
         )}
+        </div>
+        <div id="rainBarrels-panel" role="tabpanel" aria-labelledby="rainBarrels-tab" hidden={leftTab !== "rainBarrels"}>
+          <RainBarrelPanel rainBarrels={rainBarrels} disabled={isSubmitting} onChanged={refreshAll} />
+        </div>
+        {/* Outside both tabs per user request — an ambient overview
+            shouldn't disappear just because you switched to Rain Barrels,
+            the same way NeedsAttentionBanner is never tab-scoped either. */}
+        <GardenSummary beds={beds} plants={plants} />
       </div>
       <div className="min-w-0 xl:sticky xl:top-8">
         <GardenViewer3D
           beds={beds}
           environment={environment}
+          rainBarrels={rainBarrels}
           plants={plants}
           selectedCell={selectedCell}
           disabled={isSubmitting}

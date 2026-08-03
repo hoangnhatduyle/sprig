@@ -61,7 +61,9 @@ describe("startNewSeason", () => {
     const irrigation = await prisma.irrigationSystem.create({
       data: { status: "RUNNING", beds: { connect: { id: bed.id } } },
     });
-    const rainBarrel = await prisma.rainBarrel.create({ data: { currentGallons: 30, status: "PARTIAL" } });
+    const rainBarrel = await prisma.rainBarrel.create({
+      data: { yardSlot: 1, currentGallons: 30, status: "PARTIAL" },
+    });
     const solarLight = await prisma.solarLight.create({ data: { bedId: bed.id, chargeLevel: 0.7, status: "READY" } });
     const override = await installConditionOverride(prisma, { bedId: bed.id, kind: "SHADE_CLOTH", intensity: 0.5 });
 

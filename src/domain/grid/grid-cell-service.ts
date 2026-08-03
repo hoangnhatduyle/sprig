@@ -1,4 +1,4 @@
-import type { Bed, PrismaClient } from "@prisma/client";
+import type { Bed, PrismaClient, RainBarrelStatus } from "@prisma/client";
 import {
   DuplicateCompanionPlantError,
   GeometryValidationError,
@@ -509,6 +509,19 @@ export interface SnapshotPredatorPopulation {
   population: number;
 }
 
+// Rain barrels are standalone yard objects, not bed-scoped equipment — the
+// 3D model places both beside the garden rather than inside either bed, and
+// RainBarrel has no bedId (see prisma/schema.prisma). yardSlot is what maps
+// this row to its RainBarrel_<n>_* GLB node group and 2D display order.
+export interface SnapshotRainBarrel {
+  id: string;
+  yardSlot: number;
+  capacityGallons: number;
+  currentGallons: number;
+  catchmentAreaSqFt: number;
+  status: RainBarrelStatus;
+}
+
 interface SnapshotCell {
   column: number;
   row: number;
@@ -565,6 +578,7 @@ export interface GardenEnvironmentView {
 export interface GardenSnapshot {
   beds: SnapshotBed[];
   environment: GardenEnvironmentView;
+  rainBarrels: SnapshotRainBarrel[];
 }
 
 // Which effect kinds a planting at `index` receives from every OTHER
@@ -605,7 +619,7 @@ export async function getGardenSnapshot(
   prisma: PrismaClient,
   options?: { at?: Date },
 ): Promise<GardenSnapshot> {
-  const [beds, clock, location] = await Promise.all([
+  const [beds, rainBarrels, clock, location] = await Promise.all([
     prisma.bed.findMany({
       include: {
         cells: {
@@ -636,6 +650,7 @@ export async function getGardenSnapshot(
         soilProfile: true,
       },
     }),
+    prisma.rainBarrel.findMany({ orderBy: { yardSlot: "asc" } }),
     getCurrentSimTime(prisma, options?.at),
     getGardenLocation(prisma),
   ]);
@@ -752,6 +767,14 @@ export async function getGardenSnapshot(
       weather,
       forecast,
     },
+    rainBarrels: rainBarrels.map((barrel) => ({
+      id: barrel.id,
+      yardSlot: barrel.yardSlot,
+      capacityGallons: barrel.capacityGallons,
+      currentGallons: barrel.currentGallons,
+      catchmentAreaSqFt: barrel.catchmentAreaSqFt,
+      status: barrel.status,
+    })),
   };
 }
 

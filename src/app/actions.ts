@@ -38,6 +38,13 @@ import { InvalidCareActionAmountError } from "@/domain/soil/errors";
 import { applyFungicideToCell } from "@/domain/disease/disease-action-service";
 import { applyPesticideToBed, releasePredatorsToBed } from "@/domain/pests/pest-action-service";
 import { InvalidPestActionAmountError, UnknownPestKeyError, UnknownPredatorKeyError } from "@/domain/pests/errors";
+import { addWater, drawWater, updateCatchmentArea } from "@/domain/irrigation/rain-barrel-service";
+import {
+  ConcurrentModificationError as RainBarrelConcurrentModificationError,
+  InsufficientWaterError,
+  InvalidCatchmentAreaError,
+  InvalidWaterAmountError,
+} from "@/domain/irrigation/errors";
 import {
   createInventoryPlant,
   deleteInventoryPlant,
@@ -196,6 +203,73 @@ export async function refreshWorkspaceAction(): Promise<WorkspaceSnapshot> {
     getInventorySnapshot(prisma),
   ]);
   return { garden, inventory };
+}
+
+function describeRainBarrelError(error: unknown): string {
+  if (
+    error instanceof InvalidWaterAmountError ||
+    error instanceof InsufficientWaterError ||
+    error instanceof InvalidCatchmentAreaError
+  ) {
+    return error.message;
+  }
+  if (error instanceof RainBarrelConcurrentModificationError) {
+    return "That barrel changed at the same time — please try again.";
+  }
+  console.error("[RAIN_BARREL] unexpected rain barrel error:", error);
+  return "Something went wrong. Please try again.";
+}
+
+// Manual top-up — same addWater() the daily real-rainfall auto-fill uses
+// (catch-up-service.ts's applyDailyRainfall), just triggered by the user
+// directly instead of a day's precipitation. Handles capacity/overflow the
+// same way either path does.
+export async function addRainBarrelWaterAction(
+  barrelId: string,
+  amountGallons: number,
+): Promise<ActionResult> {
+  if (typeof barrelId !== "string" || !barrelId || typeof amountGallons !== "number") {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    await addWater(prisma, barrelId, amountGallons);
+    return { ok: true };
+  } catch (error: unknown) {
+    return { ok: false, error: describeRainBarrelError(error) };
+  }
+}
+
+// Pure bookkeeping (§ decisions confirmed while planning this feature): draws
+// down currentGallons and logs a DRAW_WATER event, with no effect on soil
+// moisture or the (separate) irrigation system's own water source.
+export async function drawRainBarrelWaterAction(
+  barrelId: string,
+  amountGallons: number,
+): Promise<ActionResult> {
+  if (typeof barrelId !== "string" || !barrelId || typeof amountGallons !== "number") {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    await drawWater(prisma, barrelId, amountGallons);
+    return { ok: true };
+  } catch (error: unknown) {
+    return { ok: false, error: describeRainBarrelError(error) };
+  }
+}
+
+export async function updateRainBarrelCatchmentAreaAction(
+  barrelId: string,
+  catchmentAreaSqFt: number,
+): Promise<ActionResult> {
+  if (typeof barrelId !== "string" || !barrelId || typeof catchmentAreaSqFt !== "number") {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    await updateCatchmentArea(prisma, barrelId, catchmentAreaSqFt);
+    return { ok: true };
+  } catch (error: unknown) {
+    return { ok: false, error: describeRainBarrelError(error) };
+  }
 }
 
 export interface SetClockRateResult extends ActionResult {

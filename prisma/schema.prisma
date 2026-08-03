@@ -221,12 +221,28 @@ enum RainBarrelEventType {
 }
 
 model RainBarrel {
-  id              String            @id @default(cuid())
-  capacityGallons Float             @default(50)
-  currentGallons  Float             @default(0)
-  linkedDownspout String?
-  status          RainBarrelStatus  @default(EMPTY)
-  events          RainBarrelEvent[]
+  id                String            @id @default(cuid())
+  // 1 or 2 — the stable mapping to the RainBarrel_1_*/RainBarrel_2_* GLB node
+  // groups and to 2D display order. There's no bed relation to key off (the
+  // barrels sit beside the beds in the 3D scene, not inside either one), so
+  // this is the deterministic identifier instead.
+  yardSlot          Int               @unique
+  capacityGallons   Float             @default(50)
+  currentGallons    Float             @default(0)
+  // Manual input, sq ft of roof draining into this barrel — no house/roof is
+  // modeled in the 3D scene, so this can't be derived geometrically. Default
+  // seeded from a rough single-downspout share; the UI surfaces a rule-of-
+  // thumb helper so the user can adjust it per barrel.
+  catchmentAreaSqFt Float             @default(300)
+  linkedDownspout   String?
+  status            RainBarrelStatus  @default(EMPTY)
+  events            RainBarrelEvent[]
+  // Catch-up cursor, mirrors PlantingBiologyState/CellEnvironmentState's own
+  // updatedThroughDate — tracks which calendar day's rainfall has already
+  // been applied so repeated catchUpGrowth calls never double-count the same
+  // day's precipitation into currentGallons. Null until the first catch-up
+  // pass ever runs for this barrel.
+  rainfallAppliedThroughDate DateTime?
 }
 
 // Append-only — the structural backing for NC-SPRIG-BARREL-CAPACITY-CAP:

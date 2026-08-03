@@ -25,13 +25,14 @@ import { plantName } from "@/components/garden/plant-lookup";
 import { STATUS_WORD } from "@/components/garden/status-display";
 import { HEALTH_BAND_LABEL, STRESS_DIAL_LABEL, healthBand } from "@/components/garden/stress-display";
 import { DISEASE_LABEL, bedPestPhrase, bedPredatorPhrase, diseaseSeverityBand } from "@/components/garden/pest-display";
-import type { GardenEnvironment, PlantOption, SelectedCell, SnapshotBed } from "@/components/garden/types";
+import type { GardenEnvironment, PlantOption, SelectedCell, SnapshotBed, SnapshotRainBarrel } from "@/components/garden/types";
 import { useWebGlSupport } from "@/components/viewer/use-webgl-support";
 import {
   buildCellRenderStates,
   buildEquipmentRenderStates,
   buildPestSwarmRenderStates,
   buildPredatorSwarmRenderStates,
+  buildRainBarrelRenderStates,
   resolveCellTarget,
 } from "./garden-3d-adapter";
 import { GardenScene3D } from "./GardenScene3D";
@@ -108,13 +109,14 @@ function ResponsiveCamera({ controlsRef }: { controlsRef: RefObject<OrbitControl
 export interface GardenViewer3DProps {
   beds: SnapshotBed[];
   environment: GardenEnvironment;
+  rainBarrels: SnapshotRainBarrel[];
   plants: PlantOption[];
   selectedCell: SelectedCell | null;
   disabled?: boolean;
   onCellClick: (target: SelectedCell) => void;
 }
 
-export function GardenViewer3D({ beds, environment, plants, selectedCell, disabled, onCellClick }: GardenViewer3DProps) {
+export function GardenViewer3D({ beds, environment, rainBarrels, plants, selectedCell, disabled, onCellClick }: GardenViewer3DProps) {
   const [hoveredNodeName, setHoveredNodeName] = useState<string | null>(null);
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const canRender3D = useWebGlSupport();
@@ -124,6 +126,7 @@ export function GardenViewer3D({ beds, environment, plants, selectedCell, disabl
   const equipmentBySide = useMemo(() => buildEquipmentRenderStates(beds), [beds]);
   const pestSwarmBySide = useMemo(() => buildPestSwarmRenderStates(beds), [beds]);
   const predatorSwarmBySide = useMemo(() => buildPredatorSwarmRenderStates(beds), [beds]);
+  const rainBarrelStates = useMemo(() => buildRainBarrelRenderStates(rainBarrels), [rainBarrels]);
   const hasActiveSwarm = [...pestSwarmBySide.values(), ...predatorSwarmBySide.values()].some((visual) => visual !== null);
   const lighting = useMemo(
     () =>
@@ -218,6 +221,7 @@ export function GardenViewer3D({ beds, environment, plants, selectedCell, disabl
               equipmentBySide={equipmentBySide}
               pestSwarmBySide={pestSwarmBySide}
               predatorSwarmBySide={predatorSwarmBySide}
+              rainBarrelStates={rainBarrelStates}
               onCellClick={handleCellClick}
               onCellHover={setHoveredNodeName}
             />

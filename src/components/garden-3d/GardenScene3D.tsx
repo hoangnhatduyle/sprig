@@ -18,7 +18,7 @@
 
 import { useMemo } from "react";
 import { useGLTF } from "@react-three/drei";
-import { Mesh, Vector3, type BufferGeometry } from "three";
+import { Color, Mesh, MeshStandardMaterial, Vector3, type BufferGeometry, type Material } from "three";
 import type { CellStatus } from "@/domain/grid/planting-lifecycle";
 import { bedExtentsFromPlacements } from "@/domain/garden-3d/bed-extent-3d";
 import type { BedSide } from "@/domain/garden-3d/cell-node-mapping";
@@ -31,9 +31,9 @@ import { Plant } from "@/components/viewer/Plant";
 import { BedEquipment } from "./BedEquipment";
 import { WeatherParticles } from "./WeatherParticles";
 import { PestSwarm, PREDATOR_SWARM_HEIGHT_ABOVE_BED } from "./PestSwarm";
-import type { CellRenderState, EquipmentRenderState } from "./garden-3d-adapter";
+import type { CellRenderState, EquipmentRenderState, RainBarrelRenderState } from "./garden-3d-adapter";
 
-const MODEL_URL = "/models/Sprig3D.glb";
+const MODEL_URL = "/models/Sprig3Dv2.glb";
 const CELL_NODE_PATTERN = /^Cell_[A-H][1-8]$/;
 // The GLB's own ground mesh (Ground_15x11ft, material "MulchGround") only
 // covers the mulch patio directly under the pergola/beds — everywhere else
@@ -48,12 +48,55 @@ const CELL_NODE_PATTERN = /^Cell_[A-H][1-8]$/;
 const GRASS_PLANE_SIZE = 120;
 const GRASS_Y = -0.01;
 const GRASS_COLOR = "#5c7a3f";
+// docs/Sprig3Dv2.glb added its own baked whole-yard grass plane
+// (Grass_WholeYard, ~y=-0.01) that sits almost exactly on top of the
+// pre-existing baked mulch patio (Ground_15x11ft, ~y=0) — two near-coincident
+// ground planes in the same footprint z-fight (flickers green/brown) rather
+// than one cleanly winning. It also fully duplicates the procedural grass
+// plane above. Hidden via the same narrow visibility-toggle precedent as the
+// rain barrel WaterLevel mesh below, restoring the original (correct)
+// procedural-grass-under/mulch-patio-on-top look.
+const GRASS_WHOLE_YARD_NODE_NAME = "Grass_WholeYard";
 // Matches every bulb on the pergola's six zig-zag runs (StringLight_Zig1..6,
 // Bulb_0..5 each) — see string-light-glow.ts's header for why these need a
 // separate glow overlay rather than mutating the baked GLB material.
 const BULB_NODE_PATTERN = /^StringLight_Zig\d+_Bulb_\d+$/;
 const BULB_GLOW_RADIUS = 0.035;
 const BULB_GLOW_COLOR = "#ffd166";
+// Matches each barrel's WaterLevel/Body node pair (docs/Sprig3Dv2.glb) — see
+// rain-barrel-fill.ts's header for why the WaterLevel mesh, baked at a fixed
+// 50% fill, is hidden and replaced by a scaled overlay rather than left
+// visible alongside it.
+const RAIN_BARREL_WATER_NODE_PATTERN = /^RainBarrel_(\d+)_WaterLevel$/;
+const RAIN_BARREL_BODY_NODE_PATTERN = /^RainBarrel_(\d+)_Body$/;
+// The Body material is authored at alpha 0.88 (alphaMode BLEND) — technically
+// translucent, but high enough it reads as solid, hiding the whole point of
+// the water-level overlay above. Same "hide original, render a fresh overlay"
+// technique as WaterLevel, reusing the Body's own color/roughness so barrel 1
+// and 2 keep their distinct authored finishes, just genuinely see-through.
+const RAIN_BARREL_BODY_OVERLAY_OPACITY = 0.4;
+// Both SpigotHandle and SpigotStem are authored centered on the barrel's own
+// vertical axis (local X/Z span only ±0.07/±0.035, vs. the Body's ±0.875
+// radius) rather than offset out to the wall — invisible against the
+// originally near-opaque body, but floating inside the barrel now that it's
+// genuinely see-through. Same hide-and-reposition technique, moved out to
+// the wall along the direction facing the camera's orbit target (a defined,
+// explainable "front" rather than an arbitrary axis pick).
+const RAIN_BARREL_SPIGOT_NODE_PATTERN = /^RainBarrel_(\d+)_Spigot(?:Handle|Stem)$/;
+// Every StandLeg is authored at the same X as its barrel's own center — the
+// naming (_<xSign>_<zSign>) implies 4 distinct corners, but X is never
+// actually offset, and on barrel 2 two of the four legs are additionally
+// translated meters away from their own stand entirely (verified against the
+// source GLB). The two legs per barrel that ARE correctly placed sit exactly
+// ±0.7 from their StandTop's center in both axes — that's the one
+// consistent, correct value in the data, so it's reused here as the target
+// inset for all 8 legs rather than four hardcoded per-barrel corrections.
+const RAIN_BARREL_STAND_LEG_NODE_PATTERN = /^RainBarrel_(\d+)_StandLeg_(-?1)_(-?1)$/;
+const RAIN_BARREL_STAND_TOP_NODE_PATTERN = /^RainBarrel_(\d+)_StandTop$/;
+const STAND_LEG_INSET = 0.7;
+// Applied on top of the leg's own authored scale, to real-photo-reference
+// legs thinner (X/Z only — height is untouched).
+const STAND_LEG_THINNESS_FACTOR = 0.6;
 // Overlay meshes must never win a raycast — same reasoning as
 // BedEquipment.tsx's NO_RAYCAST: a bulb floating near a cell would otherwise
 // silently break clicking/hovering whichever cell it's closest to.
@@ -95,6 +138,47 @@ interface BulbPlacement {
   z: number;
 }
 
+// bakedFraction is the fill fraction the artist's baked WaterLevel geometry
+// itself represents (derived from its own bounding-box height vs. the
+// barrel Body's, not hardcoded — see rain-barrel-fill.ts) — the overlay
+// scales this reused geometry by targetFraction / bakedFraction so it
+// stretches from the correct bottom-anchored pivot to any actual fill level,
+// not just the one baked ratio.
+interface RainBarrelPlacement {
+  yardSlot: number;
+  geometry: BufferGeometry;
+  material: Material | Material[];
+  worldPosition: Vector3;
+  bakedFraction: number;
+}
+
+interface BarrelBodyPlacement {
+  yardSlot: number;
+  geometry: BufferGeometry;
+  color: Color;
+  roughness: number;
+  worldPosition: Vector3;
+}
+
+interface SpigotPlacement {
+  nodeName: string;
+  geometry: BufferGeometry;
+  material: Material | Material[];
+  worldPosition: Vector3;
+}
+
+interface StandLegPlacement {
+  nodeName: string;
+  geometry: BufferGeometry;
+  material: Material | Material[];
+  worldPosition: Vector3;
+  // The raw geometry is a plain unit cube — its actual thin post shape comes
+  // entirely from the node's own scale (~0.12 x 0.9 x 0.12), which has to be
+  // captured and reapplied explicitly since the overlay mesh is a fresh JSX
+  // element, not the original scaled node.
+  scale: Vector3;
+}
+
 export interface GardenScene3DProps {
   cellStates: ReadonlyMap<string, CellRenderState>;
   lighting: SceneLighting;
@@ -103,6 +187,7 @@ export interface GardenScene3DProps {
   equipmentBySide: ReadonlyMap<BedSide, EquipmentRenderState[]>;
   pestSwarmBySide: ReadonlyMap<BedSide, PestSwarmVisual | null>;
   predatorSwarmBySide: ReadonlyMap<BedSide, PestSwarmVisual | null>;
+  rainBarrelStates: ReadonlyMap<number, RainBarrelRenderState>;
   onCellClick?: (nodeName: string) => void;
   onCellHover?: (nodeName: string | null) => void;
 }
@@ -115,24 +200,35 @@ export function GardenScene3D({
   equipmentBySide,
   pestSwarmBySide,
   predatorSwarmBySide,
+  rainBarrelStates,
   onCellClick,
   onCellHover,
 }: GardenScene3DProps) {
   const { scene } = useGLTF(MODEL_URL);
 
   // Read-only derivation from the model: which meshes are cell hit-targets
-  // (their geometry, reused never mutated, and real-world placement) and
-  // which are string-light bulbs (just their placement, for the glow
-  // overlay below) — one traversal for both, recomputed only if the loaded
-  // model itself changes.
-  const { placements, bulbPlacements } = useMemo(() => {
+  // (their geometry, reused never mutated, and real-world placement), which
+  // are string-light bulbs (just their placement, for the glow overlay
+  // below), and each rain barrel's WaterLevel/Body pair (for the fill
+  // overlay below) — one traversal for all three, recomputed only if the
+  // loaded model itself changes.
+  const { placements, bulbPlacements, rainBarrelPlacements, barrelBodyPlacements, spigotPlacements, standLegPlacements } = useMemo(() => {
     // Guarantees matrixWorld is current before reading it below, rather than
     // assuming the loader already resolved it for a scene that hasn't been
     // mounted into a rendered tree yet.
     scene.updateMatrixWorld(true);
     const cells: CellPlacement[] = [];
     const bulbs: BulbPlacement[] = [];
+    const bodyMeshesBySlot = new Map<number, { mesh: Mesh; localHeight: number; radiusXZ: number }>();
+    const waterMeshesBySlot = new Map<number, { mesh: Mesh; localHeight: number }>();
+    const spigotMeshes: Mesh[] = [];
+    const standTopCenterBySlot = new Map<number, Vector3>();
+    const standLegMeshes: { mesh: Mesh; yardSlot: number; xSign: number; zSign: number }[] = [];
     scene.traverse((object) => {
+      if (object.name === GRASS_WHOLE_YARD_NODE_NAME) {
+        object.visible = false;
+        return;
+      }
       if (!(object instanceof Mesh)) {
         return;
       }
@@ -150,9 +246,142 @@ export function GardenScene3D({
         object.geometry.boundingBox?.getCenter(center);
         center.applyMatrix4(object.matrixWorld);
         bulbs.push({ nodeName: object.name, x: center.x, y: center.y, z: center.z });
+        return;
+      }
+      const bodyMatch = RAIN_BARREL_BODY_NODE_PATTERN.exec(object.name);
+      if (bodyMatch) {
+        object.geometry.computeBoundingBox();
+        const box = object.geometry.boundingBox;
+        bodyMeshesBySlot.set(Number(bodyMatch[1]), {
+          mesh: object,
+          localHeight: box ? box.max.y - box.min.y : 0,
+          radiusXZ: box ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2 : 0,
+        });
+        return;
+      }
+      const waterMatch = RAIN_BARREL_WATER_NODE_PATTERN.exec(object.name);
+      if (waterMatch) {
+        object.geometry.computeBoundingBox();
+        const box = object.geometry.boundingBox;
+        waterMeshesBySlot.set(Number(waterMatch[1]), {
+          mesh: object,
+          localHeight: box ? box.max.y - box.min.y : 0,
+        });
+        return;
+      }
+      if (RAIN_BARREL_SPIGOT_NODE_PATTERN.test(object.name)) {
+        spigotMeshes.push(object);
+        return;
+      }
+      const standTopMatch = RAIN_BARREL_STAND_TOP_NODE_PATTERN.exec(object.name);
+      if (standTopMatch) {
+        // StandTop itself is correctly centered in the source data (matches
+        // its barrel's Body translation) — read only, never hidden/replaced.
+        standTopCenterBySlot.set(Number(standTopMatch[1]), new Vector3().setFromMatrixPosition(object.matrixWorld));
+        return;
+      }
+      const standLegMatch = RAIN_BARREL_STAND_LEG_NODE_PATTERN.exec(object.name);
+      if (standLegMatch) {
+        standLegMeshes.push({
+          mesh: object,
+          yardSlot: Number(standLegMatch[1]),
+          xSign: Number(standLegMatch[2]),
+          zSign: Number(standLegMatch[3]),
+        });
       }
     });
-    return { placements: cells, bulbPlacements: bulbs };
+
+    const rainBarrels: RainBarrelPlacement[] = [];
+    for (const [yardSlot, { mesh, localHeight }] of waterMeshesBySlot) {
+      const bodyHeight = bodyMeshesBySlot.get(yardSlot)?.localHeight;
+      const bakedFraction = bodyHeight && bodyHeight > 0 ? localHeight / bodyHeight : 0;
+      const worldPosition = new Vector3().setFromMatrixPosition(mesh.matrixWorld);
+      // The baked WaterLevel mesh fully replaces its own visual role with
+      // the React-driven overlay below — left visible, it would show a
+      // second, always-50%-full water surface no matter what the overlay
+      // renders. This is a narrow, one-time visibility toggle computed
+      // alongside the already-precedented scene.updateMatrixWorld(true)
+      // mutation above, not a material/color/geometry change, and it's the
+      // only way to represent an arbitrary fill level: an additive-only
+      // overlay (like the bulb glow) can't make a fixed, already-visible
+      // translucent disc appear shorter than its baked height.
+      mesh.visible = false;
+      rainBarrels.push({ yardSlot, geometry: mesh.geometry, material: mesh.material, worldPosition, bakedFraction });
+    }
+
+    const barrelBodies: BarrelBodyPlacement[] = [];
+    for (const [yardSlot, { mesh }] of bodyMeshesBySlot) {
+      const worldPosition = new Vector3().setFromMatrixPosition(mesh.matrixWorld);
+      const sourceMaterial = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const isStandard = sourceMaterial instanceof MeshStandardMaterial;
+      // Same narrow visibility toggle as WaterLevel above — the authored
+      // body material (alpha 0.88) reads as solid, hiding the water-level
+      // overlay it's meant to reveal. Color/roughness are only READ here to
+      // keep the overlay visually consistent with each barrel's authored
+      // finish, never written back onto the original material.
+      mesh.visible = false;
+      barrelBodies.push({
+        yardSlot,
+        geometry: mesh.geometry,
+        color: isStandard ? sourceMaterial.color.clone() : new Color("#4d3626"),
+        roughness: isStandard ? sourceMaterial.roughness : 0.55,
+        worldPosition,
+      });
+    }
+
+    const spigots: SpigotPlacement[] = [];
+    for (const mesh of spigotMeshes) {
+      const worldPosition = new Vector3().setFromMatrixPosition(mesh.matrixWorld);
+      const bodyMatch = /^RainBarrel_(\d+)_/.exec(mesh.name);
+      const radius = bodyMatch ? bodyMeshesBySlot.get(Number(bodyMatch[1]))?.radiusXZ ?? 0 : 0;
+      // Direction from the spigot's own (currently center-of-barrel) position
+      // toward the camera's orbit target, constrained to the X axis only (Z
+      // dropped) — an explainable "front" rather than an arbitrary +X/-X
+      // pick. Both barrels share the same X (13.9) but differ in Z (2.2 vs
+      // 3.9), so including the Z component here gave each barrel a slightly
+      // different angle and made the two spigots land off-center from each
+      // other; zeroing it means both land at the exact horizontal center of
+      // the same X-facing wall, at each barrel's own unmodified center Z.
+      const towardTarget = new Vector3(GARDEN_3D_ORBIT_BOUNDS.target.x - worldPosition.x, 0, 0);
+      if (towardTarget.lengthSq() > 0) {
+        towardTarget.normalize();
+      }
+      const repositioned = worldPosition.clone().addScaledVector(towardTarget, radius);
+      // Same narrow visibility toggle as the other rain-barrel fixes — the
+      // original sits on the barrel's central axis instead of its wall (see
+      // this pattern's own header comment).
+      mesh.visible = false;
+      spigots.push({ nodeName: mesh.name, geometry: mesh.geometry, material: mesh.material, worldPosition: repositioned });
+    }
+
+    const standLegs: StandLegPlacement[] = [];
+    for (const { mesh, yardSlot, xSign, zSign } of standLegMeshes) {
+      const center = standTopCenterBySlot.get(yardSlot);
+      const worldPosition = new Vector3().setFromMatrixPosition(mesh.matrixWorld);
+      const repositioned = center
+        ? new Vector3(center.x + xSign * STAND_LEG_INSET, worldPosition.y, center.z + zSign * STAND_LEG_INSET)
+        : worldPosition;
+      // Same narrow visibility toggle — see this pattern's own header
+      // comment on why all 4 legs' X/Z are recomputed from the (correctly
+      // placed) StandTop center rather than trusting the authored translation.
+      mesh.visible = false;
+      standLegs.push({
+        nodeName: mesh.name,
+        geometry: mesh.geometry,
+        material: mesh.material,
+        worldPosition: repositioned,
+        scale: mesh.scale.clone(),
+      });
+    }
+
+    return {
+      placements: cells,
+      bulbPlacements: bulbs,
+      rainBarrelPlacements: rainBarrels,
+      barrelBodyPlacements: barrelBodies,
+      spigotPlacements: spigots,
+      standLegPlacements: standLegs,
+    };
   }, [scene]);
 
   // Reuses the same placements memo buildCellRenderStates' overlay meshes
@@ -253,6 +482,60 @@ export function GardenScene3D({
             />
           </mesh>
         ))}
+      {standLegPlacements.map((placement) => (
+        <mesh
+          key={placement.nodeName}
+          geometry={placement.geometry}
+          material={placement.material}
+          position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
+          scale={[
+            placement.scale.x * STAND_LEG_THINNESS_FACTOR,
+            placement.scale.y,
+            placement.scale.z * STAND_LEG_THINNESS_FACTOR,
+          ]}
+          raycast={NO_RAYCAST}
+        />
+      ))}
+      {barrelBodyPlacements.map((placement) => (
+        <mesh
+          key={`rainbarrel-body-${placement.yardSlot}`}
+          geometry={placement.geometry}
+          position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
+          raycast={NO_RAYCAST}
+        >
+          <meshStandardMaterial
+            color={placement.color}
+            roughness={placement.roughness}
+            transparent
+            opacity={RAIN_BARREL_BODY_OVERLAY_OPACITY}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
+      {rainBarrelPlacements.map((placement) => {
+        const state = rainBarrelStates.get(placement.yardSlot);
+        const scaleY =
+          state && placement.bakedFraction > 0 ? state.fillFraction / placement.bakedFraction : 0;
+        return (
+          <mesh
+            key={`rainbarrel-${placement.yardSlot}`}
+            geometry={placement.geometry}
+            material={placement.material}
+            position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
+            scale={[1, scaleY, 1]}
+            raycast={NO_RAYCAST}
+          />
+        );
+      })}
+      {spigotPlacements.map((placement) => (
+        <mesh
+          key={placement.nodeName}
+          geometry={placement.geometry}
+          material={placement.material}
+          position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
+          raycast={NO_RAYCAST}
+        />
+      ))}
     </>
   );
 }
