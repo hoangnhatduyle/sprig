@@ -7,7 +7,7 @@
 // the storage-handling logic looks identical.
 
 import { randomUUID } from "node:crypto";
-import { del, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const PATH_PREFIX = "journal-photos/";
@@ -29,6 +29,9 @@ export class JournalPhotoError extends Error {
 // verbatim in JournalNote.photoFilename) — validated against Vercel Blob's
 // own hostname pattern before every read/delete so a corrupted/foreign DB
 // value can never turn into an arbitrary server-side fetch (SSRF).
+// Deliberately not pinned to ".public." — this store is configured for
+// private access (Vercel fixes that at the store level, not per-call), so
+// blob URLs come back as "<storeId>.private.blob.vercel-storage.com".
 function safeBlobUrl(url: string): string {
   let parsed: URL;
   try {
@@ -38,7 +41,7 @@ function safeBlobUrl(url: string): string {
   }
   if (
     parsed.protocol !== "https:" ||
-    !parsed.hostname.endsWith(".public.blob.vercel-storage.com") ||
+    !parsed.hostname.endsWith(".blob.vercel-storage.com") ||
     !parsed.pathname.startsWith(`/${PATH_PREFIX}`)
   ) {
     throw new JournalPhotoError("Invalid image path.");
@@ -54,17 +57,21 @@ export async function storeJournalPhoto(file: File): Promise<{ filename: string;
   }
   const pathname = `${PATH_PREFIX}${randomUUID()}${extension}`;
   const blob = await put(pathname, Buffer.from(await file.arrayBuffer()), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     contentType: file.type,
   });
   return { filename: blob.url, mimeType: file.type };
 }
 
+// Never exposed to the client directly — always read server-side and
+// streamed back through /api/journal-photos/[noteId], so an authenticated
+// `get()` (private access, via BLOB_READ_WRITE_TOKEN) is fine here; there's
+// no public URL for the browser to hit.
 export async function readJournalPhoto(filename: string): Promise<Buffer> {
-  const response = await fetch(safeBlobUrl(filename));
-  if (!response.ok) throw new JournalPhotoError("Image not found.");
-  return Buffer.from(await response.arrayBuffer());
+  const result = await get(safeBlobUrl(filename), { access: "private" });
+  if (!result || result.statusCode !== 200) throw new JournalPhotoError("Image not found.");
+  return Buffer.from(await new Response(result.stream).arrayBuffer());
 }
 
 export async function removeJournalPhoto(filename: string | null): Promise<void> {
