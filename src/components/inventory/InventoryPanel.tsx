@@ -599,6 +599,17 @@ function PlantForm({
           disabled={disabled}
         />
       </label>
+      {unit === "seed" ? (
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Quantity (seeds)</span>
+          <input className={INPUT} type="number" min="0" step="any" value={seedQuantityInput} onChange={(event) => setSeedQuantityInput(event.target.value)} required />
+        </label>
+      ) : (
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Quantity ({unit}s)</span>
+          <input className={INPUT} type="number" min="0" step="any" value={unitQuantityInput} onChange={(event) => setUnitQuantityInput(event.target.value)} required />
+        </label>
+      )}
       <label className="text-sm">
         <span className="mb-1 block font-medium">Unit</span>
         <select className={INPUT} value={unit} onChange={(event) => setUnit(event.target.value as SeedUnit)}>
@@ -607,22 +618,11 @@ function PlantForm({
           ))}
         </select>
       </label>
-      {unit === "seed" ? (
+      {unit !== "seed" && (
         <label className="text-sm">
-          <span className="mb-1 block font-medium">Quantity (seeds)</span>
-          <input className={INPUT} type="number" min="0" step="any" value={seedQuantityInput} onChange={(event) => setSeedQuantityInput(event.target.value)} required />
+          <span className="mb-1 block font-medium">Seeds per {unit}</span>
+          <input className={INPUT} type="number" min="0.01" step="any" value={seedsPerUnitInput} onChange={(event) => setSeedsPerUnitInput(event.target.value)} required />
         </label>
-      ) : (
-        <>
-          <label className="text-sm">
-            <span className="mb-1 block font-medium">Seeds per {unit}</span>
-            <input className={INPUT} type="number" min="0.01" step="any" value={seedsPerUnitInput} onChange={(event) => setSeedsPerUnitInput(event.target.value)} required />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block font-medium">Quantity ({unit}s)</span>
-            <input className={INPUT} type="number" min="0" step="any" value={unitQuantityInput} onChange={(event) => setUnitQuantityInput(event.target.value)} required />
-          </label>
-        </>
       )}
       <label className="text-sm sm:col-span-2">
         <span className="mb-1 block font-medium">Notes</span>
