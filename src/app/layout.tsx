@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ServiceWorkerRegister } from "./service-worker-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,9 +23,13 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
+  applicationName: "Sprig",
   title: "Sprig",
   description: "Plan and tend your garden beds.",
+  appleWebApp: { capable: true, title: "Sprig", statusBarStyle: "default" },
 };
+
+export const viewport: Viewport = { themeColor: "#225a35" };
 
 export default function RootLayout({
   children,
@@ -36,7 +41,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   );
 }
