@@ -437,11 +437,19 @@ export async function getFallbackSpeciesProfileAction(): Promise<SpeciesProfile>
   return getFallbackSpeciesProfile(prisma);
 }
 
-export async function createInventoryPlantAction(input: PlantInput): Promise<ActionResult> {
+export interface CreatePlantResult extends ActionResult {
+  plantId?: string;
+}
+
+// Returns the new plant's id (unlike the other inventory actions) so the
+// caller can immediately follow up with uploadPlantImageAction — the "Add
+// plant" form lets a user attach a photo before the plant even exists yet,
+// and uploadPlantImageAction requires a real plantId to attach it to.
+export async function createInventoryPlantAction(input: PlantInput): Promise<CreatePlantResult> {
   if (!isPlantInput(input)) return { ok: false, error: "Invalid plant details." };
   try {
-    await createInventoryPlant(prisma, input);
-    return { ok: true };
+    const plant = await createInventoryPlant(prisma, input);
+    return { ok: true, plantId: plant.id };
   } catch (error) {
     return { ok: false, error: describeInventoryError(error) };
   }

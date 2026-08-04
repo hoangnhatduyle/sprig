@@ -13,6 +13,7 @@ import {
   updateInventoryPlantAction,
   uploadPlantImageAction,
   type ActionResult,
+  type CreatePlantResult,
 } from "@/app/actions";
 import type {
   InventoryPlant,
@@ -529,7 +530,7 @@ function PlantForm({
   plant: InventoryPlant | null;
   speciesOptions: readonly SpeciesProfileSummary[];
   onSpeciesCreated: (profile: SpeciesProfileSummary) => void;
-  onSave: (input: PlantInput) => void;
+  onSave: (input: PlantInput, imageFile: File | null) => void;
   onCancel: () => void;
   disabled: boolean;
 }) {
@@ -541,6 +542,18 @@ function PlantForm({
   const [seedsPerUnitInput, setSeedsPerUnitInput] = useState(String(plant?.seedsPerUnit ?? 1));
   const [unitQuantityInput, setUnitQuantityInput] = useState(String(plant?.unitQuantity ?? 0));
   const [notes, setNotes] = useState(plant?.notes ?? "");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
 
   return (
     <form
@@ -550,17 +563,20 @@ function PlantForm({
         event.preventDefault();
         const seedsPerUnit = unit === "seed" ? 1 : Number(seedsPerUnitInput);
         const seedQuantity = unit === "seed" ? Number(seedQuantityInput) : Number(unitQuantityInput) * seedsPerUnit;
-        onSave({
-          commonName: name,
-          speciesProfileId,
-          notes,
-          seedQuantity,
-          seedUnit: unit,
-          seedsPerUnit,
-          isCompanionPlanting: plant?.isCompanionPlanting ?? false,
-          waterNeed: plant?.waterNeed,
-          lightNeed: plant?.lightNeed,
-        });
+        onSave(
+          {
+            commonName: name,
+            speciesProfileId,
+            notes,
+            seedQuantity,
+            seedUnit: unit,
+            seedsPerUnit,
+            isCompanionPlanting: plant?.isCompanionPlanting ?? false,
+            waterNeed: plant?.waterNeed,
+            lightNeed: plant?.lightNeed,
+          },
+          imageFile,
+        );
       }}
     >
       <label className="text-sm">
@@ -599,6 +615,45 @@ function PlantForm({
           disabled={disabled}
         />
       </label>
+      <div className="text-sm sm:col-span-2">
+        <span className="mb-1 block font-medium">Photo (optional)</span>
+        <div className="flex items-center gap-3">
+          {(imagePreviewUrl ?? plant?.imageUrl) && (
+            <Image
+              src={imagePreviewUrl ?? plant!.imageUrl!}
+              alt=""
+              width={48}
+              height={48}
+              unoptimized={Boolean(imagePreviewUrl)}
+              className="h-12 w-12 rounded-md object-cover"
+            />
+          )}
+          <label
+            className="flex min-h-11 cursor-pointer items-center rounded-md border px-3 text-sm font-semibold hover:bg-[var(--color-surface-raised)]"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            {imageFile ? "Change photo" : "Choose photo"}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="sr-only"
+              disabled={disabled}
+              onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          {imageFile && (
+            <button
+              type="button"
+              onClick={() => setImageFile(null)}
+              disabled={disabled}
+              className="text-xs underline"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
       {unit === "seed" ? (
         <label className="text-sm">
           <span className="mb-1 block font-medium">Quantity (seeds)</span>
@@ -762,12 +817,35 @@ export function InventoryPanel({ inventory, disabled, onChanged, bare = false }:
             }
             disabled={busy}
             onCancel={() => setEditing(null)}
-            onSave={(input) =>
-              void mutate(
-                () => editing === "new" ? createInventoryPlantAction(input) : updateInventoryPlantAction(editing.id, input),
-                editing === "new" ? "Plant added." : "Plant updated.",
-              )
-            }
+            onSave={(input, imageFile) => {
+              const isNew = editing === "new";
+              const editingId = isNew ? null : editing.id;
+              let photoWarning: string | null = null;
+              void mutate(async (): Promise<ActionResult> => {
+                const result: CreatePlantResult = isNew
+                  ? await createInventoryPlantAction(input)
+                  : await updateInventoryPlantAction(editingId!, input);
+                if (!result.ok) return result;
+                const plantId = isNew ? result.plantId : editingId;
+                // The plant record is already saved at this point — never
+                // fail the whole operation over a photo upload hiccup, or
+                // the form stays open and resubmitting would create a
+                // duplicate plant (createInventoryPlantAction has no
+                // upsert semantics).
+                if (imageFile && plantId) {
+                  const formData = new FormData();
+                  formData.set("plantId", plantId);
+                  formData.set("image", imageFile);
+                  const imageResult = await uploadPlantImageAction(formData);
+                  if (!imageResult.ok) {
+                    photoWarning = imageResult.error ?? "Photo upload failed.";
+                  }
+                }
+                return { ok: true };
+              }, isNew ? "Plant added." : "Plant updated.").then(() => {
+                if (photoWarning) setMessage((current) => `${current} Photo not saved: ${photoWarning}`);
+              });
+            }}
           />
         </div>
       )}
