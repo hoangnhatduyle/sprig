@@ -17,14 +17,17 @@ function makeInventoryPlant(id: string, commonName: string, seedQuantity = 10): 
   return {
     id,
     commonName,
-    species: null,
     waterNeed: null,
     lightNeed: null,
     isCompanionPlanting: false,
     notes: null,
     seedQuantity,
     seedUnit: "seeds",
+    seedsPerUnit: 1,
+    unitQuantity: seedQuantity,
     imageUrl: null,
+    speciesProfileId: null,
+    speciesProfileName: null,
   };
 }
 

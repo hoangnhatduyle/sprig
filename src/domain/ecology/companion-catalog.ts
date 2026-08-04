@@ -43,6 +43,15 @@ export const COMPANION_EFFECT_SOURCES: readonly CompanionEffectSource[] = [
   // POLLINATOR_BOOST, since pollinators and predators are ecologically (and
   // mechanically, in pest-service.ts) distinct populations.
   { speciesKey: "marigold", kind: "PREDATOR_ATTRACT", magnitude: 0.4 },
+  // pea split out of the pole-bean keyword bucket (species-catalog.ts) but
+  // is the same nitrogen-fixing legume mechanic.
+  { speciesKey: "pea", kind: "NITROGEN_FIX", magnitude: 0.03 },
+  // dill split out of the marigold keyword bucket — same insectary
+  // predator-attracting flower behavior.
+  { speciesKey: "dill", kind: "PREDATOR_ATTRACT", magnitude: 0.3 },
+  // nasturtium split out of the marigold keyword bucket — same insectary
+  // pollinator-boosting flower behavior.
+  { speciesKey: "nasturtium", kind: "POLLINATOR_BOOST", magnitude: 0.3 },
 ];
 
 export function companionEffectsForSpecies(speciesKey: string): readonly CompanionEffectSource[] {

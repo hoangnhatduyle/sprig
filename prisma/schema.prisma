@@ -81,13 +81,18 @@ model Bed {
 model Plant {
   id                  String          @id @default(cuid())
   commonName          String
-  species             String?
   waterNeed           String?
   lightNeed           String?
   isCompanionPlanting Boolean         @default(false)
   notes               String?
+  // Always canonical seed-equivalents, regardless of seedUnit — see
+  // seed-units.ts and inventory-service.ts.
   seedQuantity        Float           @default(0)
   seedUnit            String          @default("seed")
+  // Conversion factor: 1 seedUnit = seedsPerUnit seeds. Default 1 is exact
+  // backward compatibility — every pre-existing row's seedQuantity was
+  // already being decremented as a raw number regardless of unit.
+  seedsPerUnit        Float           @default(1)
   imageFilename       String?
   imageMimeType       String?
   archivedAt          DateTime?

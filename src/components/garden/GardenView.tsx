@@ -553,7 +553,7 @@ export function GardenView({
               </label>
             )}
             <label className="mt-4 block text-sm font-medium">
-              Amount consumed ({pendingDrop.plant.seedUnit})
+              Amount consumed (seeds)
               <input type="number" min="0.01" max={pendingDrop.plant.seedQuantity} step="any" value={dropAmount} onChange={(event) => setDropAmount(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3" style={{ borderColor: "var(--color-border)" }} />
             </label>
             {error && <p role="alert" className="mt-3 text-sm" style={{ color: "var(--color-danger-text)" }}>{error}</p>}
@@ -584,7 +584,9 @@ export function GardenView({
             <span>
               <strong className="block text-sm leading-tight">{activeDrag.commonName}</strong>
               <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
-                {activeDrag.seedQuantity} {activeDrag.seedUnit}
+                {activeDrag.seedUnit === "seed"
+                  ? `${activeDrag.seedQuantity} seeds`
+                  : `≈${activeDrag.unitQuantity} ${activeDrag.seedUnit}s (${activeDrag.seedQuantity} seeds)`}
               </span>
             </span>
           </div>

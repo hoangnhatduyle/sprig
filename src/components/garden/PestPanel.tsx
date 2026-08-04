@@ -8,6 +8,7 @@
 // action controls, sharing the same onChanged refresh-callback contract.
 
 import { useMemo, useState } from "react";
+import { ShieldAlert } from "lucide-react";
 import { applyPesticideAction, releasePredatorsAction } from "@/app/actions";
 import { PEST_DEFINITIONS } from "@/domain/pests/pest-catalog";
 import { PREDATOR_DEFINITIONS } from "@/domain/pests/predator-catalog";
@@ -32,6 +33,9 @@ const MAX_PREDATOR_RELEASE_AMOUNT = 5;
 
 export interface PestPanelProps {
   beds: SnapshotBed[];
+  // Lifted to GardenTopTabs — shared with ConditionsPanel's bed selector so
+  // there's one "Beds" fieldset for the whole What-if Planner tab.
+  selectedBedIds: string[];
   disabled?: boolean;
   onChanged?: () => Promise<void>;
   // When true, skips the card chrome (border/background/shadow) so this can
@@ -41,8 +45,7 @@ export interface PestPanelProps {
   bare?: boolean;
 }
 
-export function PestPanel({ beds, disabled = false, onChanged, bare = false }: PestPanelProps) {
-  const [selectedBedIds, setSelectedBedIds] = useState<string[]>([]);
+export function PestPanel({ beds, selectedBedIds, disabled = false, onChanged, bare = false }: PestPanelProps) {
   const [pestKey, setPestKey] = useState(PEST_DEFINITIONS[0]?.key ?? "");
   const [broadSpectrum, setBroadSpectrum] = useState(false);
   const [predatorKey, setPredatorKey] = useState(PREDATOR_DEFINITIONS[0]?.key ?? "");
@@ -52,10 +55,6 @@ export function PestPanel({ beds, disabled = false, onChanged, bare = false }: P
 
   const pestsByBed = useMemo(() => Object.fromEntries(beds.map((bed) => [bed.id, bed.pests])), [beds]);
   const predatorsByBed = useMemo(() => Object.fromEntries(beds.map((bed) => [bed.id, bed.predators])), [beds]);
-
-  function toggleBed(bedId: string): void {
-    setSelectedBedIds((prev) => (prev.includes(bedId) ? prev.filter((id) => id !== bedId) : [...prev, bedId]));
-  }
 
   async function handleApplyPesticide(): Promise<void> {
     if (selectedBedIds.length === 0 || busy || !pestKey) return;
@@ -125,26 +124,11 @@ export function PestPanel({ beds, disabled = false, onChanged, bare = false }: P
         Pests &amp; predators
       </h2>
 
-      <fieldset className="mb-4">
-        <legend className="mb-1.5 text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-clay-strong)" }}>
-          Beds
-        </legend>
-        <div className="flex flex-wrap gap-2">
-          {beds.map((bed) => (
-            <label
-              key={bed.id}
-              className={`flex items-center gap-2 rounded-md border px-3 ${MIN_TOUCH_TARGET} text-sm ${FOCUS_RING}`}
-              style={{
-                borderColor: selectedBedIds.includes(bed.id) ? "var(--color-accent)" : "var(--color-border)",
-                background: selectedBedIds.includes(bed.id) ? "var(--color-surface)" : "transparent",
-              }}
-            >
-              <input type="checkbox" checked={selectedBedIds.includes(bed.id)} onChange={() => toggleBed(bed.id)} disabled={disabled} />
-              {bed.name}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      {selectedBedIds.length === 0 && (
+        <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          Select a bed above to manage pests and predators.
+        </p>
+      )}
 
       {selectedBedIds.length > 0 && (
         <div className="mb-5">
@@ -207,93 +191,115 @@ export function PestPanel({ beds, disabled = false, onChanged, bare = false }: P
         </div>
       )}
 
-      <div className="mb-6 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
-        <h3 className="font-semibold">Apply pesticide</h3>
-        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Knocks the targeted pest down hard, but not to zero. Broad-spectrum also suppresses predators on the selected beds.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
-          <label className="block text-sm">
-            Pest
-            {/* Explicit `block` — without it this <select> sits inline right
-                after the label text once `sm:w-48` drops the `w-full` that
-                would otherwise force a line break (same fix as
-                ConditionsPanel.tsx's Equipment select). */}
-            <select
-              value={pestKey}
-              onChange={(event) => setPestKey(event.target.value)}
-              className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-48`}
-              style={{ borderColor: "var(--color-border)" }}
+      {/* Both actions here are real and immediate — no sandbox/preview
+          alternative exists for pests, so both get the same warning-toned
+          treatment ConditionsPanel uses for its "Install" step, instead of
+          looking like any other neutral form. */}
+      <div className="mb-6 overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-warning-text)" }}>
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
+          style={{ background: "var(--color-warning-bg)", color: "var(--color-warning-text)" }}
+        >
+          <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          Real change — not a preview
+        </div>
+        <div className="p-3">
+          <h3 className="font-semibold">Apply pesticide</h3>
+          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Knocks the targeted pest down hard, but not to zero. Broad-spectrum also suppresses predators on the selected beds.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
+            <label className="block text-sm">
+              Pest
+              {/* Explicit `block` — without it this <select> sits inline right
+                  after the label text once `sm:w-48` drops the `w-full` that
+                  would otherwise force a line break (same fix as
+                  ConditionsPanel.tsx's Equipment select). */}
+              <select
+                value={pestKey}
+                onChange={(event) => setPestKey(event.target.value)}
+                className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-48`}
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                {PEST_DEFINITIONS.map((pest) => (
+                  <option key={pest.key} value={pest.key}>
+                    {PEST_LABEL[pest.key] ?? pest.key}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={`flex items-center gap-2 text-sm ${MIN_TOUCH_TARGET}`}>
+              <input type="checkbox" checked={broadSpectrum} onChange={(event) => setBroadSpectrum(event.target.checked)} />
+              Broad-spectrum
+            </label>
+            <button
+              type="button"
+              disabled={disabled || busy || selectedBedIds.length === 0}
+              onClick={() => void handleApplyPesticide()}
+              className={`rounded-md bg-[var(--color-cta-bg)] px-4 font-semibold text-[var(--color-cta-text)] ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60`}
             >
-              {PEST_DEFINITIONS.map((pest) => (
-                <option key={pest.key} value={pest.key}>
-                  {PEST_LABEL[pest.key] ?? pest.key}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={`flex items-center gap-2 text-sm ${MIN_TOUCH_TARGET}`}>
-            <input type="checkbox" checked={broadSpectrum} onChange={(event) => setBroadSpectrum(event.target.checked)} />
-            Broad-spectrum
-          </label>
-          <button
-            type="button"
-            disabled={disabled || busy || selectedBedIds.length === 0}
-            onClick={() => void handleApplyPesticide()}
-            className={`rounded-md bg-[var(--color-cta-bg)] px-4 font-semibold text-[var(--color-cta-text)] ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60`}
-          >
-            Apply
-          </button>
+              Apply
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
-        <h3 className="font-semibold">Release predators</h3>
-        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          A direct, bounded population addition (0–{MAX_PREDATOR_RELEASE_AMOUNT}) on the selected beds.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
-          <label className="block text-sm">
-            Predator
-            {/* Explicit `block` — same fix as the Pest select above. */}
-            <select
-              value={predatorKey}
-              onChange={(event) => setPredatorKey(event.target.value)}
-              className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-48`}
+      <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-warning-text)" }}>
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
+          style={{ background: "var(--color-warning-bg)", color: "var(--color-warning-text)" }}
+        >
+          <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          Real change — not a preview
+        </div>
+        <div className="p-3">
+          <h3 className="font-semibold">Release predators</h3>
+          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            A direct, bounded population addition (0–{MAX_PREDATOR_RELEASE_AMOUNT}) on the selected beds.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
+            <label className="block text-sm">
+              Predator
+              {/* Explicit `block` — same fix as the Pest select above. */}
+              <select
+                value={predatorKey}
+                onChange={(event) => setPredatorKey(event.target.value)}
+                className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-48`}
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                {PREDATOR_DEFINITIONS.map((predator) => (
+                  <option key={predator.key} value={predator.key}>
+                    {PREDATOR_LABEL[predator.key] ?? predator.key}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              Amount
+              {/* Explicit `block` — a fixed-width input (w-24, no responsive
+                  w-full to "accidentally" force the wrap) has the same inline-
+                  after-label-text problem as the selects above. */}
+              <input
+                type="number"
+                min={0}
+                max={MAX_PREDATOR_RELEASE_AMOUNT}
+                step={0.5}
+                value={releaseAmount}
+                onChange={(event) => setReleaseAmount(event.target.value)}
+                className={`mt-1 block ${MIN_TOUCH_TARGET} w-24 rounded-md border bg-[var(--color-surface)] px-3`}
+                style={{ borderColor: "var(--color-border)" }}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={disabled || busy || selectedBedIds.length === 0}
+              onClick={() => void handleReleasePredators()}
+              className={`rounded-md border px-4 font-semibold ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
               style={{ borderColor: "var(--color-border)" }}
             >
-              {PREDATOR_DEFINITIONS.map((predator) => (
-                <option key={predator.key} value={predator.key}>
-                  {PREDATOR_LABEL[predator.key] ?? predator.key}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            Amount
-            {/* Explicit `block` — a fixed-width input (w-24, no responsive
-                w-full to "accidentally" force the wrap) has the same inline-
-                after-label-text problem as the selects above. */}
-            <input
-              type="number"
-              min={0}
-              max={MAX_PREDATOR_RELEASE_AMOUNT}
-              step={0.5}
-              value={releaseAmount}
-              onChange={(event) => setReleaseAmount(event.target.value)}
-              className={`mt-1 block ${MIN_TOUCH_TARGET} w-24 rounded-md border bg-[var(--color-surface)] px-3`}
-              style={{ borderColor: "var(--color-border)" }}
-            />
-          </label>
-          <button
-            type="button"
-            disabled={disabled || busy || selectedBedIds.length === 0}
-            onClick={() => void handleReleasePredators()}
-            className={`rounded-md border px-4 font-semibold ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            Release
-          </button>
+              Release
+            </button>
+          </div>
         </div>
       </div>
 

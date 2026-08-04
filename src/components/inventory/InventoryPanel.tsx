@@ -1,11 +1,15 @@
 "use client";
 
+import type { GrowthHabit, PollinationDependency } from "@prisma/client";
 import { useDraggable } from "@dnd-kit/core";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  createCustomSpeciesProfileAction,
   createInventoryPlantAction,
   deleteInventoryPlantAction,
+  getFallbackSpeciesProfileAction,
+  listSpeciesProfilesAction,
   updateInventoryPlantAction,
   uploadPlantImageAction,
   type ActionResult,
@@ -15,6 +19,8 @@ import type {
   InventorySnapshot,
   PlantInput,
 } from "@/domain/plant-catalog/inventory-service";
+import { guessSpeciesKey, type CustomSpeciesInput, type SpeciesProfileSummary } from "@/domain/growth/species-catalog";
+import { SEED_UNIT_LABELS, SEED_UNIT_OPTIONS, type SeedUnit } from "@/domain/plant-catalog/seed-units";
 
 type Props = {
   inventory: InventorySnapshot;
@@ -28,6 +34,9 @@ type Props = {
 
 const INPUT =
   "min-h-11 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-clay)]";
+
+const GROWTH_HABITS: readonly GrowthHabit[] = ["UPRIGHT_BUSH", "VINING", "ROSETTE_LEAFY", "ROOT_CROP"];
+const POLLINATION_DEPENDENCIES: readonly PollinationDependency[] = ["SELF", "WIND", "INSECT"];
 
 function SeedSlot({
   plant,
@@ -81,7 +90,7 @@ function SeedSlot({
         type="button"
         disabled={disabled}
         onClick={onToggle}
-        aria-label={`${plant.commonName}, ${plant.seedQuantity} ${plant.seedUnit}. ${
+        aria-label={`${plant.commonName}, ${plant.seedQuantity} seeds. ${
           canDrag ? "Drag to plant, click for details." : "Click for details."
         }`}
         aria-expanded={isOpen}
@@ -128,13 +137,15 @@ function SeedSlot({
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)" }}
         >
           <strong className="block">{plant.commonName}</strong>
-          {plant.species && (
+          {plant.speciesProfileName && (
             <span className="block italic" style={{ color: "var(--color-text-muted)" }}>
-              {plant.species}
+              {plant.speciesProfileName}
             </span>
           )}
           <span className="block">
-            {plant.seedQuantity} {plant.seedUnit}
+            {plant.seedUnit === "seed"
+              ? `${plant.seedQuantity} seeds`
+              : `≈${plant.unitQuantity} ${plant.seedUnit}s (${plant.seedQuantity} seeds)`}
           </span>
         </div>
       )}
@@ -145,13 +156,21 @@ function SeedSlot({
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)" }}
         >
           <p className="truncate font-semibold">{plant.commonName}</p>
-          {plant.species && (
+          {plant.speciesProfileName && (
             <p className="truncate text-xs italic" style={{ color: "var(--color-text-muted)" }}>
-              {plant.species}
+              {plant.speciesProfileName}
             </p>
           )}
           <p className="mt-1">
-            <strong>{plant.seedQuantity}</strong> {plant.seedUnit}
+            {plant.seedUnit === "seed" ? (
+              <>
+                <strong>{plant.seedQuantity}</strong> seeds
+              </>
+            ) : (
+              <>
+                ≈<strong>{plant.unitQuantity}</strong> {plant.seedUnit}s ({plant.seedQuantity} seeds)
+              </>
+            )}
           </p>
           <div className="mt-3 flex flex-wrap gap-2 border-t pt-2 text-xs" style={{ borderColor: "var(--color-border)" }}>
             <button
@@ -203,21 +222,324 @@ function SeedSlot({
   );
 }
 
+// Backs the "create new species" form's numeric defaults so a non-expert
+// edits sensible starting values rather than blank/zero fields — owns its
+// own local field state (CustomSpeciesFields) so that state is only ever
+// declared once defaults have actually loaded, avoiding a conditional hook
+// count in a single component (rules-of-hooks).
+function CustomSpeciesForm({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: (profile: SpeciesProfileSummary) => void;
+  onCancel: () => void;
+}) {
+  const [defaults, setDefaults] = useState<CustomSpeciesInput | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getFallbackSpeciesProfileAction().then((fallback) => {
+      if (cancelled) return;
+      setDefaults({
+        displayName: "",
+        growthHabit: fallback.growthHabit,
+        baseTempC: fallback.baseTempC,
+        gddToGerminate: fallback.gddToGerminate,
+        gddToVegetative: fallback.gddToVegetative,
+        gddToFlowering: fallback.gddToFlowering,
+        gddToFruiting: fallback.gddToFruiting,
+        gddToMaturity: fallback.gddToMaturity,
+        heatStressThresholdC: fallback.heatStressThresholdC,
+        coldStressThresholdC: fallback.coldStressThresholdC,
+        matureHeightCm: fallback.matureHeightCm,
+        canopyWidthCm: fallback.canopyWidthCm,
+        primaryColor: fallback.primaryColor,
+        droughtComfortFraction: fallback.droughtComfortFraction,
+        lightNeedFraction: fallback.lightNeedFraction,
+        pollinationDependency: fallback.pollinationDependency,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!defaults) {
+    return (
+      <p className="p-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+        Loading defaults…
+      </p>
+    );
+  }
+  return <CustomSpeciesFields defaults={defaults} onCreated={onCreated} onCancel={onCancel} />;
+}
+
+function CustomSpeciesFields({
+  defaults,
+  onCreated,
+  onCancel,
+}: {
+  defaults: CustomSpeciesInput;
+  onCreated: (profile: SpeciesProfileSummary) => void;
+  onCancel: () => void;
+}) {
+  const [input, setInput] = useState<CustomSpeciesInput>(defaults);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function setField<K extends keyof CustomSpeciesInput>(key: K, value: CustomSpeciesInput[K]): void {
+    setInput((current) => ({ ...current, [key]: value }));
+  }
+
+  return (
+    <form
+      className="grid max-h-72 gap-2 overflow-y-auto rounded-lg border p-3 text-xs sm:grid-cols-2"
+      style={{ borderColor: "var(--color-border)" }}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError(null);
+        const result = await createCustomSpeciesProfileAction(input);
+        setBusy(false);
+        if (!result.ok || !result.profile) {
+          setError(result.error ?? "Couldn't create species.");
+          return;
+        }
+        onCreated(result.profile);
+      }}
+    >
+      <label className="text-xs sm:col-span-2">
+        <span className="mb-1 block font-medium">Display name</span>
+        <input className={INPUT} value={input.displayName} onChange={(event) => setField("displayName", event.target.value)} required autoFocus />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Growth habit</span>
+        <select className={INPUT} value={input.growthHabit} onChange={(event) => setField("growthHabit", event.target.value as GrowthHabit)}>
+          {GROWTH_HABITS.map((habit) => (
+            <option key={habit} value={habit}>{habit.replace(/_/g, " ")}</option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Primary color</span>
+        <input className={`${INPUT} h-11 p-1`} type="color" value={input.primaryColor} onChange={(event) => setField("primaryColor", event.target.value)} />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Pollination</span>
+        <select
+          className={INPUT}
+          value={input.pollinationDependency ?? "SELF"}
+          onChange={(event) => setField("pollinationDependency", event.target.value as PollinationDependency)}
+        >
+          {POLLINATION_DEPENDENCIES.map((dep) => (
+            <option key={dep} value={dep}>{dep}</option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Base temp (°C)</span>
+        <input className={INPUT} type="number" step="any" value={input.baseTempC} onChange={(event) => setField("baseTempC", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Heat stress (°C)</span>
+        <input className={INPUT} type="number" step="any" value={input.heatStressThresholdC} onChange={(event) => setField("heatStressThresholdC", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Cold stress (°C)</span>
+        <input className={INPUT} type="number" step="any" value={input.coldStressThresholdC} onChange={(event) => setField("coldStressThresholdC", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Mature height (cm)</span>
+        <input className={INPUT} type="number" step="any" value={input.matureHeightCm} onChange={(event) => setField("matureHeightCm", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">Canopy width (cm)</span>
+        <input className={INPUT} type="number" step="any" value={input.canopyWidthCm} onChange={(event) => setField("canopyWidthCm", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">GDD to germinate</span>
+        <input className={INPUT} type="number" step="any" value={input.gddToGerminate} onChange={(event) => setField("gddToGerminate", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">GDD to vegetative</span>
+        <input className={INPUT} type="number" step="any" value={input.gddToVegetative} onChange={(event) => setField("gddToVegetative", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">GDD to flowering</span>
+        <input className={INPUT} type="number" step="any" value={input.gddToFlowering} onChange={(event) => setField("gddToFlowering", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">GDD to fruiting</span>
+        <input className={INPUT} type="number" step="any" value={input.gddToFruiting} onChange={(event) => setField("gddToFruiting", Number(event.target.value))} required />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">GDD to maturity</span>
+        <input className={INPUT} type="number" step="any" value={input.gddToMaturity} onChange={(event) => setField("gddToMaturity", Number(event.target.value))} required />
+      </label>
+      {error && (
+        <p className="text-xs sm:col-span-2" style={{ color: "var(--color-danger-text)" }}>{error}</p>
+      )}
+      <div className="flex gap-2 sm:col-span-2">
+        <button type="submit" disabled={busy} className="min-h-9 rounded-md bg-[var(--color-cta-bg)] px-3 font-semibold text-[var(--color-cta-text)] disabled:opacity-50">
+          Create species
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy} className="min-h-9 rounded-md border px-3" style={{ borderColor: "var(--color-border)" }}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// Searchable species picker backing the Add Plant form's "Species" field —
+// this is the fix for species (free text) having zero effect on
+// simulation: growth is driven by Plant.speciesProfileId, so the picker
+// must resolve to a real SpeciesProfile row, not accept arbitrary text.
+// Follows SeedSlot's own outside-click/Escape popover idiom above.
+function SpeciesPicker({
+  options,
+  speciesProfileId,
+  speciesDisplayName,
+  onSelect,
+  onCreated,
+  disabled,
+}: {
+  options: readonly SpeciesProfileSummary[];
+  speciesProfileId: string | null;
+  speciesDisplayName: string | null;
+  onSelect: (profile: SpeciesProfileSummary) => void;
+  onCreated: (profile: SpeciesProfileSummary) => void;
+  disabled: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  function close(): void {
+    setIsOpen(false);
+    setIsCreating(false);
+  }
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function handlePointerDown(event: MouseEvent): void {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        close();
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") close();
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const normalized = query.trim().toLocaleLowerCase();
+  const filtered = useMemo(
+    () => options.filter((entry) => entry.displayName.toLocaleLowerCase().includes(normalized)),
+    [options, normalized],
+  );
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+        className={`${INPUT} text-left`}
+      >
+        {speciesDisplayName ?? "Choose a species…"}
+      </button>
+      {isOpen && (
+        <div
+          className="absolute z-30 mt-1 w-72 max-w-[85vw] rounded-lg border p-2 shadow-lg"
+          style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)" }}
+        >
+          {isCreating ? (
+            <CustomSpeciesForm
+              onCreated={(profile) => {
+                onCreated(profile);
+                onSelect(profile);
+                close();
+              }}
+              onCancel={() => setIsCreating(false)}
+            />
+          ) : (
+            <>
+              <input
+                type="search"
+                className={`${INPUT} mb-2`}
+                placeholder="Search species…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                autoFocus
+              />
+              <ul className="max-h-56 overflow-y-auto">
+                {filtered.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelect(entry);
+                        close();
+                      }}
+                      className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--color-surface)]"
+                      style={{ fontWeight: entry.id === speciesProfileId ? 600 : 400 }}
+                    >
+                      {entry.displayName}
+                    </button>
+                  </li>
+                ))}
+                {!filtered.length && (
+                  <li className="px-2 py-1.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                    No species match.
+                  </li>
+                )}
+              </ul>
+              <button
+                type="button"
+                onClick={() => setIsCreating(true)}
+                className="mt-1 w-full rounded-md border px-2 py-1.5 text-left text-sm font-semibold hover:bg-[var(--color-surface)]"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                + Create new species
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlantForm({
   plant,
+  speciesOptions,
+  onSpeciesCreated,
   onSave,
   onCancel,
   disabled,
 }: {
   plant: InventoryPlant | null;
+  speciesOptions: readonly SpeciesProfileSummary[];
+  onSpeciesCreated: (profile: SpeciesProfileSummary) => void;
   onSave: (input: PlantInput) => void;
   onCancel: () => void;
   disabled: boolean;
 }) {
   const [name, setName] = useState(plant?.commonName ?? "");
-  const [species, setSpecies] = useState(plant?.species ?? "");
-  const [quantity, setQuantity] = useState(String(plant?.seedQuantity ?? 0));
-  const [unit, setUnit] = useState(plant?.seedUnit ?? "seed");
+  const [speciesProfileId, setSpeciesProfileId] = useState<string | null>(plant?.speciesProfileId ?? null);
+  const [speciesDisplayName, setSpeciesDisplayName] = useState<string | null>(plant?.speciesProfileName ?? null);
+  const [unit, setUnit] = useState<SeedUnit>((plant?.seedUnit as SeedUnit) ?? "seed");
+  const [seedQuantityInput, setSeedQuantityInput] = useState(String(plant?.seedQuantity ?? 0));
+  const [seedsPerUnitInput, setSeedsPerUnitInput] = useState(String(plant?.seedsPerUnit ?? 1));
+  const [unitQuantityInput, setUnitQuantityInput] = useState(String(plant?.unitQuantity ?? 0));
   const [notes, setNotes] = useState(plant?.notes ?? "");
 
   return (
@@ -226,12 +548,15 @@ function PlantForm({
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       onSubmit={(event) => {
         event.preventDefault();
+        const seedsPerUnit = unit === "seed" ? 1 : Number(seedsPerUnitInput);
+        const seedQuantity = unit === "seed" ? Number(seedQuantityInput) : Number(unitQuantityInput) * seedsPerUnit;
         onSave({
           commonName: name,
-          species,
+          speciesProfileId,
           notes,
-          seedQuantity: Number(quantity),
+          seedQuantity,
           seedUnit: unit,
+          seedsPerUnit,
           isCompanionPlanting: plant?.isCompanionPlanting ?? false,
           waterNeed: plant?.waterNeed,
           lightNeed: plant?.lightNeed,
@@ -240,20 +565,65 @@ function PlantForm({
     >
       <label className="text-sm">
         <span className="mb-1 block font-medium">Plant name</span>
-        <input className={INPUT} value={name} onChange={(event) => setName(event.target.value)} required />
+        <input
+          className={INPUT}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            // UX nicety only, never authoritative: pre-selects a catalog
+            // match once the user finishes typing a new plant's name and
+            // hasn't picked a species yet — still fully overridable via the
+            // picker below, never silently submitted.
+            if (speciesProfileId || !name.trim()) return;
+            const guessedKey = guessSpeciesKey(name);
+            const match = speciesOptions.find((option) => option.key === guessedKey);
+            if (match) {
+              setSpeciesProfileId(match.id);
+              setSpeciesDisplayName(match.displayName);
+            }
+          }}
+          required
+        />
       </label>
       <label className="text-sm">
         <span className="mb-1 block font-medium">Species</span>
-        <input className={INPUT} value={species} onChange={(event) => setSpecies(event.target.value)} />
-      </label>
-      <label className="text-sm">
-        <span className="mb-1 block font-medium">Quantity</span>
-        <input className={INPUT} type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
+        <SpeciesPicker
+          options={speciesOptions}
+          speciesProfileId={speciesProfileId}
+          speciesDisplayName={speciesDisplayName}
+          onSelect={(profile) => {
+            setSpeciesProfileId(profile.id);
+            setSpeciesDisplayName(profile.displayName);
+          }}
+          onCreated={onSpeciesCreated}
+          disabled={disabled}
+        />
       </label>
       <label className="text-sm">
         <span className="mb-1 block font-medium">Unit</span>
-        <input className={INPUT} value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="seed, packet, start…" required />
+        <select className={INPUT} value={unit} onChange={(event) => setUnit(event.target.value as SeedUnit)}>
+          {SEED_UNIT_OPTIONS.map((option) => (
+            <option key={option} value={option}>{SEED_UNIT_LABELS[option]}</option>
+          ))}
+        </select>
       </label>
+      {unit === "seed" ? (
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Quantity (seeds)</span>
+          <input className={INPUT} type="number" min="0" step="any" value={seedQuantityInput} onChange={(event) => setSeedQuantityInput(event.target.value)} required />
+        </label>
+      ) : (
+        <>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Seeds per {unit}</span>
+            <input className={INPUT} type="number" min="0.01" step="any" value={seedsPerUnitInput} onChange={(event) => setSeedsPerUnitInput(event.target.value)} required />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Quantity ({unit}s)</span>
+            <input className={INPUT} type="number" min="0" step="any" value={unitQuantityInput} onChange={(event) => setUnitQuantityInput(event.target.value)} required />
+          </label>
+        </>
+      )}
       <label className="text-sm sm:col-span-2">
         <span className="mb-1 block font-medium">Notes</span>
         <textarea className={`${INPUT} min-h-20 py-2`} value={notes} onChange={(event) => setNotes(event.target.value)} />
@@ -277,11 +647,28 @@ export function InventoryPanel({ inventory, disabled, onChanged, bare = false }:
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [openSlotId, setOpenSlotId] = useState<string | null>(null);
+  const [speciesOptions, setSpeciesOptions] = useState<SpeciesProfileSummary[]>([]);
+  const isEditing = editing !== null;
+
+  // Fetched once per edit session, not on every keystroke and not bundled
+  // into the existing snapshot polling — the species catalog changes
+  // rarely, unlike inventory quantities.
+  useEffect(() => {
+    if (!isEditing) return;
+    let cancelled = false;
+    void listSpeciesProfilesAction().then((list) => {
+      if (!cancelled) setSpeciesOptions(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing]);
+
   const normalized = query.trim().toLocaleLowerCase();
   const seeds = useMemo(
     () =>
       inventory.seeds.filter((plant) =>
-        [plant.commonName, plant.species, plant.notes]
+        [plant.commonName, plant.speciesProfileName, plant.notes]
           .filter(Boolean)
           .some((value) => value!.toLocaleLowerCase().includes(normalized)),
       ),
@@ -367,6 +754,12 @@ export function InventoryPanel({ inventory, disabled, onChanged, bare = false }:
           <PlantForm
             key={editing === "new" ? "new" : editing.id}
             plant={editing === "new" ? null : editing}
+            speciesOptions={speciesOptions}
+            onSpeciesCreated={(profile) =>
+              setSpeciesOptions((current) =>
+                [...current, profile].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+              )
+            }
             disabled={busy}
             onCancel={() => setEditing(null)}
             onSave={(input) =>

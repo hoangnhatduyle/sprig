@@ -191,7 +191,7 @@ export function GardenGrid({ beds, plants, selectedCell, disabled = false, onCel
               className="w-full max-w-96 rounded-xl border bg-[var(--color-surface-raised)] p-3 sm:p-4"
               style={{ borderColor: "var(--color-border)", boxShadow: "var(--shadow-card)" }}
             >
-              <header className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <header className="mb-3 flex flex-col gap-2">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-clay-strong)" }}>
                     Garden bed
@@ -259,7 +259,7 @@ export function GardenGrid({ beds, plants, selectedCell, disabled = false, onCel
                     </ul>
                   )}
                 </div>
-                <p className="shrink-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
                   <span className="font-semibold" style={{ color: "var(--color-text)" }}>{plantedCells}</span>
                   {" / "}
                   {bed.cells.length} planted

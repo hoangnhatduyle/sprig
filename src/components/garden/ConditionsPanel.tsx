@@ -8,8 +8,9 @@
 // same light/rain vocabulary, so trying a preset and then installing it for
 // real is one continuous flow, not two disconnected features.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ConditionOverrideKind } from "@prisma/client";
+import { FlaskConical, ShieldAlert } from "lucide-react";
 import {
   installConditionOverrideAction,
   previewConditionsAction,
@@ -28,6 +29,10 @@ import type { SnapshotBed } from "./types";
 
 export interface ConditionsPanelProps {
   beds: SnapshotBed[];
+  // Lifted to GardenTopTabs — shared with PestPanel so there's one "Beds"
+  // selector for the whole What-if Planner tab instead of two identical,
+  // independently-toggled ones.
+  selectedBedIds: string[];
   disabled?: boolean;
   // Called after a successful install/remove so the parent re-fetches the
   // snapshot (equipment now lives on it, see grid-cell-service.ts's
@@ -76,8 +81,7 @@ function ProjectionSummary({ projection, bedName }: { projection: PlantingProjec
   );
 }
 
-export function ConditionsPanel({ beds, disabled = false, onChanged, bare = false }: ConditionsPanelProps) {
-  const [selectedBedIds, setSelectedBedIds] = useState<string[]>([]);
+export function ConditionsPanel({ beds, selectedBedIds, disabled = false, onChanged, bare = false }: ConditionsPanelProps) {
   const [kind, setKind] = useState<ConditionOverrideKind>("SHADE_CLOTH");
   const [intensity, setIntensity] = useState(0.4);
   const [busy, setBusy] = useState(false);
@@ -97,10 +101,12 @@ export function ConditionsPanel({ beds, disabled = false, onChanged, bare = fals
     [beds],
   );
 
-  function toggleBed(bedId: string): void {
-    setSelectedBedIds((prev) => (prev.includes(bedId) ? prev.filter((id) => id !== bedId) : [...prev, bedId]));
+  // Bed selection now lives in GardenTopTabs (shared with PestPanel) — a
+  // stale projection for the previously-selected bed(s) would otherwise
+  // hang around after the selection changes underneath this panel.
+  useEffect(() => {
     setProjections(null);
-  }
+  }, [selectedBedIds]);
 
   function handleKindChange(nextKind: ConditionOverrideKind): void {
     setKind(nextKind);
@@ -170,6 +176,10 @@ export function ConditionsPanel({ beds, disabled = false, onChanged, bare = fals
   function applyPreset(presetKind: ConditionOverrideKind): void {
     setPreviewLight(presetKind === "SHADE_CLOTH" ? "0.6" : presetKind === "GROW_LIGHT" ? "1.4" : "1");
     setPreviewRain(presetKind === "RAIN_COVER" ? "0.2" : "1");
+    // Keeps "Install real equipment" below in sync with whatever the user
+    // just previewed, so trying a preset and then installing it for real is
+    // one continuous choice instead of configuring the same equipment twice.
+    handleKindChange(presetKind);
   }
 
   const Wrapper = bare ? "div" : "section";
@@ -197,26 +207,11 @@ export function ConditionsPanel({ beds, disabled = false, onChanged, bare = fals
         Conditions
       </h2>
 
-      <fieldset className="mb-4">
-        <legend className="mb-1.5 text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-clay-strong)" }}>
-          Beds
-        </legend>
-        <div className="flex flex-wrap gap-2">
-          {beds.map((bed) => (
-            <label
-              key={bed.id}
-              className={`flex items-center gap-2 rounded-md border px-3 ${MIN_TOUCH_TARGET} text-sm ${FOCUS_RING}`}
-              style={{
-                borderColor: selectedBedIds.includes(bed.id) ? "var(--color-accent)" : "var(--color-border)",
-                background: selectedBedIds.includes(bed.id) ? "var(--color-surface)" : "transparent",
-              }}
-            >
-              <input type="checkbox" checked={selectedBedIds.includes(bed.id)} onChange={() => toggleBed(bed.id)} disabled={disabled} />
-              {bed.name}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      {selectedBedIds.length === 0 && (
+        <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          Select a bed above to preview or install conditions.
+        </p>
+      )}
 
       {selectedBedIds.length > 0 && (
         <div className="mb-5">
@@ -260,98 +255,58 @@ export function ConditionsPanel({ beds, disabled = false, onChanged, bare = fals
         </div>
       )}
 
-      <div className="mb-6 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
-        <h3 className="font-semibold">Install real equipment</h3>
-        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Actually changes the selected bed{"'"}s future growth, starting next time it{"'"}s checked.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
-          <label className="text-sm">
-            Equipment
-            {/* Explicit `block` — without it this <select> sits inline right
-                after the label text once `sm:w-48` drops the `w-full` that
-                was otherwise accidentally forcing a line break. */}
-            <select
-              value={kind}
-              onChange={(event) => handleKindChange(event.target.value as ConditionOverrideKind)}
-              className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-48`}
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              {(Object.keys(KIND_LABEL) as ConditionOverrideKind[]).map((option) => (
-                <option key={option} value={option}>
-                  {KIND_LABEL[option]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            Intensity ({Math.round(intensity * 100)}%, {KIND_EFFECT[kind]})
-            <input
-              type="range"
-              min={0}
-              max={KIND_MAX_INTENSITY[kind]}
-              step={0.05}
-              value={intensity}
-              onChange={(event) => setIntensity(Number(event.target.value))}
-              className="mt-2 block w-full"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={disabled || busy || selectedBedIds.length === 0}
-            onClick={() => void handleInstall()}
-            className={`rounded-md bg-[var(--color-cta-bg)] px-4 font-semibold text-[var(--color-cta-text)] ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60`}
-          >
-            Install
-          </button>
+      {/* Sandbox first: this is the safe, reversible way to explore
+          equipment choices, so it's the default path rather than sitting
+          beside "Install" with equal weight. The header badge reuses the
+          same sim-ink/sim-bg tokens as the "Simulated weather" badge above,
+          so "sandbox, not real" reads as one consistent visual language. */}
+      <div className="mb-6 overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-sim-ink)" }}>
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
+          style={{ background: "var(--color-sim-bg)", color: "var(--color-sim-ink)" }}
+        >
+          <FlaskConical aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          Sandbox — never saved, never affects the real garden
         </div>
-        {message && (
-          <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {message}
+        <div className="p-3">
+          <h3 className="font-semibold">Preview a what-if scenario</h3>
+          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Projects the selected bed{"'"}s plants forward under different conditions.
           </p>
-        )}
-      </div>
-
-      <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
-        <h3 className="font-semibold">Preview a what-if scenario</h3>
-        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Projects the selected bed{"'"}s plants forward under different conditions — never saved, never affects the real garden.
-        </p>
-        <div className="mb-2 flex flex-wrap gap-2">
-          {(Object.keys(KIND_LABEL) as ConditionOverrideKind[]).map((preset) => {
-            const Icon = KIND_ICON[preset];
-            const hintId = `preset-hint-${preset}`;
-            return (
-              // `group` + `relative` scope the tooltip below to this one
-              // button — group-hover for mouse, group-focus-within so
-              // keyboard tab and mobile tap (which focuses the button before
-              // its click fires) both reveal it too.
-              <div key={preset} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => applyPreset(preset)}
-                  title={PRESET_PREVIEW_HINT[preset]}
-                  aria-describedby={hintId}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${FOCUS_RING}`}
-                  style={{ borderColor: "var(--color-border)" }}
-                >
-                  <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-                  {KIND_LABEL[preset]} preset
-                </button>
-                <span
-                  id={hintId}
-                  role="tooltip"
-                  className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-max max-w-56 -translate-x-1/2 rounded-md border px-2 py-1.5 text-xs opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)", color: "var(--color-text)" }}
-                >
-                  {PRESET_PREVIEW_HINT[preset]}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="text-sm">
+          <div className="mb-2 flex flex-wrap gap-2">
+            {(Object.keys(KIND_LABEL) as ConditionOverrideKind[]).map((preset) => {
+              const Icon = KIND_ICON[preset];
+              const hintId = `preset-hint-${preset}`;
+              return (
+                // `group` + `relative` scope the tooltip below to this one
+                // button — group-hover for mouse, group-focus-within so
+                // keyboard tab and mobile tap (which focuses the button before
+                // its click fires) both reveal it too.
+                <div key={preset} className="group relative">
+                  <button
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    title={PRESET_PREVIEW_HINT[preset]}
+                    aria-describedby={hintId}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs ${FOCUS_RING}`}
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                    {KIND_LABEL[preset]} preset
+                  </button>
+                  <span
+                    id={hintId}
+                    role="tooltip"
+                    className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-max max-w-56 -translate-x-1/2 rounded-md border px-2 py-1.5 text-xs opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-surface-raised)", color: "var(--color-text)" }}
+                  >
+                    {PRESET_PREVIEW_HINT[preset]}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <label className="block text-sm">
             Days to project
             <input
               type="number"
@@ -359,67 +314,143 @@ export function ConditionsPanel({ beds, disabled = false, onChanged, bare = fals
               max={60}
               value={projectionDays}
               onChange={(event) => setProjectionDays(event.target.value)}
-              className={`mt-1 ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3`}
+              className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-40`}
               style={{ borderColor: "var(--color-border)" }}
             />
           </label>
-          <label className="text-sm">
-            Light (1 = normal, sandbox range)
-            <input
-              type="number"
-              step="0.1"
-              min={0}
-              max={3}
-              value={previewLight}
-              onChange={(event) => setPreviewLight(event.target.value)}
-              className={`mt-1 ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3`}
-              style={{ borderColor: "var(--color-border)" }}
-            />
-          </label>
-          <label className="text-sm">
-            Rain (1 = normal, sandbox range)
-            <input
-              type="number"
-              step="0.1"
-              min={0}
-              max={3}
-              value={previewRain}
-              onChange={(event) => setPreviewRain(event.target.value)}
-              className={`mt-1 ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3`}
-              style={{ borderColor: "var(--color-border)" }}
-            />
-          </label>
+          {/* Raw multipliers collapsed by default — the presets above cover
+              the common cases, so most users click a preset and run the
+              preview without ever needing to know what "1.4" light means. */}
+          <details className="mt-3 rounded-md border p-2" style={{ borderColor: "var(--color-border)" }}>
+            <summary className={`cursor-pointer select-none text-sm font-medium ${FOCUS_RING} rounded`} style={{ color: "var(--color-text-muted)" }}>
+              Advanced: exact light/rain multipliers
+            </summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                Light (1 = normal, sandbox range)
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  max={3}
+                  value={previewLight}
+                  onChange={(event) => setPreviewLight(event.target.value)}
+                  className={`mt-1 ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3`}
+                  style={{ borderColor: "var(--color-border)" }}
+                />
+              </label>
+              <label className="text-sm">
+                Rain (1 = normal, sandbox range)
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  max={3}
+                  value={previewRain}
+                  onChange={(event) => setPreviewRain(event.target.value)}
+                  className={`mt-1 ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3`}
+                  style={{ borderColor: "var(--color-border)" }}
+                />
+              </label>
+            </div>
+          </details>
+          <button
+            type="button"
+            disabled={disabled || previewing || selectedBedIds.length === 0}
+            onClick={() => void handlePreview()}
+            className={`mt-3 rounded-md border px-4 font-semibold ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            {previewing ? "Running preview…" : "Run preview"}
+          </button>
+          {previewError && (
+            <p role="alert" className="mt-2 text-sm" style={{ color: "var(--color-danger-text)" }}>
+              {previewError}
+            </p>
+          )}
+          {projections && (
+            <ul className="mt-3 flex flex-col gap-1.5" aria-live="polite">
+              {projections.length === 0 && (
+                <li className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  Nothing planted in the selected bed{selectedBedIds.length === 1 ? "" : "s"} to project.
+                </li>
+              )}
+              {projections.map((projection) => (
+                <ProjectionSummary
+                  key={projection.cellPlantingId}
+                  projection={projection}
+                  bedName={beds.find((bed) => bed.id === projection.bedId)?.name ?? "Bed"}
+                />
+              ))}
+            </ul>
+          )}
         </div>
-        <button
-          type="button"
-          disabled={disabled || previewing || selectedBedIds.length === 0}
-          onClick={() => void handlePreview()}
-          className={`mt-3 rounded-md border px-4 font-semibold ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
-          style={{ borderColor: "var(--color-border)" }}
+      </div>
+
+      {/* Real/permanent second, demoted below the sandbox and marked with
+          the warning tokens — the deliberate follow-up step once a preview
+          looks good, not an equal-weight alternative to it. Equipment/
+          intensity here stay in sync with whichever preset was last
+          clicked above (see applyPreset's handleKindChange call). */}
+      <div className="overflow-hidden rounded-lg border" style={{ borderColor: "var(--color-warning-text)" }}>
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
+          style={{ background: "var(--color-warning-bg)", color: "var(--color-warning-text)" }}
         >
-          {previewing ? "Running preview…" : "Run preview"}
-        </button>
-        {previewError && (
-          <p role="alert" className="mt-2 text-sm" style={{ color: "var(--color-danger-text)" }}>
-            {previewError}
+          <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          Real change — not a preview
+        </div>
+        <div className="p-3">
+          <h3 className="font-semibold">Install real equipment</h3>
+          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Liked the preview? Install the same equipment for real — it changes the selected bed{"'"}s future growth, starting next time it{"'"}s checked.
           </p>
-        )}
-        {projections && (
-          <ul className="mt-3 flex flex-col gap-1.5" aria-live="polite">
-            {projections.length === 0 && (
-              <li className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-                Nothing planted in the selected bed{selectedBedIds.length === 1 ? "" : "s"} to project.
-              </li>
-            )}
-            {projections.map((projection) => (
-              <ProjectionSummary
-                key={projection.cellPlantingId}
-                projection={projection}
-                bedName={beds.find((bed) => bed.id === projection.bedId)?.name ?? "Bed"}
+          <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end">
+            <label className="text-sm">
+              Equipment
+              {/* Explicit `block` — without it this <select> sits inline right
+                  after the label text once `sm:w-48` drops the `w-full` that
+                  was otherwise accidentally forcing a line break. */}
+              <select
+                value={kind}
+                onChange={(event) => handleKindChange(event.target.value as ConditionOverrideKind)}
+                className={`mt-1 block ${MIN_TOUCH_TARGET} w-full rounded-md border bg-[var(--color-surface)] px-3 sm:w-48`}
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                {(Object.keys(KIND_LABEL) as ConditionOverrideKind[]).map((option) => (
+                  <option key={option} value={option}>
+                    {KIND_LABEL[option]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              Intensity ({Math.round(intensity * 100)}%, {KIND_EFFECT[kind]})
+              <input
+                type="range"
+                min={0}
+                max={KIND_MAX_INTENSITY[kind]}
+                step={0.05}
+                value={intensity}
+                onChange={(event) => setIntensity(Number(event.target.value))}
+                className="mt-2 block w-full"
               />
-            ))}
-          </ul>
-        )}
+            </label>
+            <button
+              type="button"
+              disabled={disabled || busy || selectedBedIds.length === 0}
+              onClick={() => void handleInstall()}
+              className={`rounded-md bg-[var(--color-cta-bg)] px-4 font-semibold text-[var(--color-cta-text)] ${MIN_TOUCH_TARGET} disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              Install
+            </button>
+          </div>
+          {message && (
+            <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {message}
+            </p>
+          )}
+        </div>
       </div>
     </Wrapper>
   );

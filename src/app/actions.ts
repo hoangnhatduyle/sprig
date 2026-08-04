@@ -1,6 +1,6 @@
 "use server";
 
-import type { BedConditionOverride, ConditionOverrideKind, Plant } from "@prisma/client";
+import type { BedConditionOverride, ConditionOverrideKind, Plant, SpeciesProfile } from "@prisma/client";
 import { DuplicateCompanionPlantError, HarvestedCellError, NoActivePlantingError } from "@/domain/grid/errors";
 import { LifecycleTransitionError } from "@/domain/grid/planting-lifecycle";
 import {
@@ -15,7 +15,14 @@ import {
 import type { GardenSnapshot } from "@/domain/grid/grid-cell-service";
 import { catchUpGrowth } from "@/domain/growth/catch-up-service";
 import { resetSimClockToNow, setClockRate } from "@/domain/growth/sim-clock-service";
-import { InvalidClockRateError } from "@/domain/growth/errors";
+import { InvalidClockRateError, SpeciesValidationError } from "@/domain/growth/errors";
+import {
+  createCustomSpeciesProfile,
+  getFallbackSpeciesProfile,
+  listSpeciesProfiles,
+  type CustomSpeciesInput,
+  type SpeciesProfileSummary,
+} from "@/domain/growth/species-catalog";
 import {
   installConditionOverride,
   listActiveConditionOverrides,
@@ -350,15 +357,84 @@ function isPlantInput(value: unknown): value is PlantInput {
   const input = value as Record<string, unknown>;
   return (
     typeof input.commonName === "string" &&
+    // The actual enforcement point for "species is required": the real
+    // caller (InventoryPanel.tsx's species picker) always populates this
+    // from a chosen SpeciesProfile, never leaves it free-text/blank.
+    typeof input.speciesProfileId === "string" &&
+    input.speciesProfileId.length > 0 &&
     typeof input.seedQuantity === "number" &&
     Number.isFinite(input.seedQuantity) &&
     typeof input.seedUnit === "string" &&
-    (input.species === undefined || input.species === null || typeof input.species === "string") &&
+    (input.seedsPerUnit === undefined ||
+      (typeof input.seedsPerUnit === "number" && Number.isFinite(input.seedsPerUnit))) &&
     (input.notes === undefined || input.notes === null || typeof input.notes === "string") &&
     (input.waterNeed === undefined || input.waterNeed === null || typeof input.waterNeed === "string") &&
     (input.lightNeed === undefined || input.lightNeed === null || typeof input.lightNeed === "string") &&
     (input.isCompanionPlanting === undefined || typeof input.isCompanionPlanting === "boolean")
   );
+}
+
+function isCustomSpeciesInput(value: unknown): value is CustomSpeciesInput {
+  if (typeof value !== "object" || value === null) return false;
+  const input = value as Record<string, unknown>;
+  const numericOrUndefined = (v: unknown) => v === undefined || (typeof v === "number" && Number.isFinite(v));
+  return (
+    typeof input.displayName === "string" &&
+    typeof input.growthHabit === "string" &&
+    typeof input.baseTempC === "number" &&
+    typeof input.gddToGerminate === "number" &&
+    typeof input.gddToVegetative === "number" &&
+    typeof input.gddToFlowering === "number" &&
+    typeof input.gddToFruiting === "number" &&
+    typeof input.gddToMaturity === "number" &&
+    typeof input.heatStressThresholdC === "number" &&
+    typeof input.coldStressThresholdC === "number" &&
+    typeof input.matureHeightCm === "number" &&
+    typeof input.canopyWidthCm === "number" &&
+    typeof input.primaryColor === "string" &&
+    numericOrUndefined(input.droughtComfortFraction) &&
+    numericOrUndefined(input.lightNeedFraction) &&
+    numericOrUndefined(input.baseNutrientDemand) &&
+    numericOrUndefined(input.windLodgingThresholdKph) &&
+    numericOrUndefined(input.diseaseResistanceTrait) &&
+    (input.pollinationDependency === undefined || typeof input.pollinationDependency === "string")
+  );
+}
+
+function describeSpeciesError(error: unknown): string {
+  if (error instanceof SpeciesValidationError) {
+    return error.message;
+  }
+  console.error("[SPECIES] unexpected species error:", error);
+  return "Something went wrong. Please try again.";
+}
+
+export interface CreateSpeciesResult extends ActionResult {
+  profile?: SpeciesProfileSummary;
+}
+
+export async function createCustomSpeciesProfileAction(input: CustomSpeciesInput): Promise<CreateSpeciesResult> {
+  if (!isCustomSpeciesInput(input)) return { ok: false, error: "Invalid species details." };
+  try {
+    const profile = await createCustomSpeciesProfile(prisma, input);
+    return {
+      ok: true,
+      profile: { id: profile.id, key: profile.key, displayName: profile.displayName, growthHabit: profile.growthHabit },
+    };
+  } catch (error) {
+    return { ok: false, error: describeSpeciesError(error) };
+  }
+}
+
+export async function listSpeciesProfilesAction(): Promise<SpeciesProfileSummary[]> {
+  return listSpeciesProfiles(prisma);
+}
+
+// Backs the "create new species" form's pre-filled defaults
+// (InventoryPanel.tsx) so a non-expert edits sensible starting values
+// rather than blank/zero fields.
+export async function getFallbackSpeciesProfileAction(): Promise<SpeciesProfile> {
+  return getFallbackSpeciesProfile(prisma);
 }
 
 export async function createInventoryPlantAction(input: PlantInput): Promise<ActionResult> {

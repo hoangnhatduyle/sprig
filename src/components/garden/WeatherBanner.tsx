@@ -8,7 +8,7 @@
 // GardenSnapshot.environment (grid-cell-service.ts) plainly, above the
 // grid, so weather is visible without clicking anything.
 
-import { Cloud, CloudLightning, CloudRain, CloudSun, Droplets, Satellite, Dices, Snowflake, Sun, Thermometer, Wind } from "lucide-react";
+import { Cloud, CloudLightning, CloudRain, CloudSun, Droplets, Satellite, Dices, Snowflake, Sun, Sunrise, Sunset, Thermometer, Wind } from "lucide-react";
 import type { GardenEnvironment } from "./types";
 import { useHydrated } from "./use-hydrated";
 
@@ -86,20 +86,27 @@ export function WeatherBanner({ environment, bare = false }: WeatherBannerProps)
       }
       aria-labelledby="weather-heading"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          {!bare && (
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-clay-strong)" }}>
-              Today in the garden
-            </p>
-          )}
+      <div>
+        {!bare && (
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-clay-strong)" }}>
+            Today in the garden
+          </p>
+        )}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 id="weather-heading" className="text-2xl" style={{ fontFamily: "var(--font-display)", color: "var(--color-text)" }}>
             {formatDate(environment.simTimeIso, hydrated)} · {PHASE_LABEL[environment.phase]}
           </h2>
+          <p className="inline-flex items-center gap-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
+            <span className="inline-flex items-center gap-1">
+              <Sunrise aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              {formatTime(environment.sunriseIso, hydrated)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Sunset aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              {formatTime(environment.sunsetIso, hydrated)}
+            </span>
+          </p>
         </div>
-        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          Sunrise {formatTime(environment.sunriseIso, hydrated)} · Sunset {formatTime(environment.sunsetIso, hydrated)}
-        </p>
       </div>
 
       {!weather ? (

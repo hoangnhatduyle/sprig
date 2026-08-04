@@ -10,3 +10,5 @@ class GrowthDomainError extends Error {
 }
 
 export class InvalidClockRateError extends GrowthDomainError {}
+
+export class SpeciesValidationError extends GrowthDomainError {}

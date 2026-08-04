@@ -20,6 +20,7 @@ import type { DayNightPhase } from "@/domain/lighting/day-night-lifecycle";
 import { getForecastView, getWeatherDayView, type WeatherDayView } from "@/domain/weather/weather-service";
 import { estimateEvapotranspirationDisplayMm } from "@/domain/soil/water-bucket-service";
 import { companionEffectsForSpecies, type CompanionEffectKind } from "@/domain/ecology/companion-catalog";
+import { getFallbackSpeciesProfile, guessSpeciesKey } from "@/domain/growth/species-catalog";
 
 const GRID_COLS = 4;
 const GRID_ROWS = 8;
@@ -660,6 +661,12 @@ export async function getGardenSnapshot(
   const phase = computePhase(location, clock.simTime);
   const weather = await getWeatherDayView(prisma, clock.simTime);
   const forecast = await getForecastView(prisma, clock.simTime);
+  // A planting's speciesProfile can be null (onDelete: SetNull on
+  // Plant.speciesProfileId) — mirrors the fallback already applied in
+  // catch-up-service.ts and whatif-projection-service.ts so the 3D viewer
+  // always has a growth model to render from instead of silently omitting
+  // the planting's growth data.
+  const fallbackSpecies = await getFallbackSpeciesProfile(prisma);
 
   return {
     beds: beds.map((bed) => ({
@@ -691,7 +698,9 @@ export async function getGardenSnapshot(
           }
         : null,
       cells: bed.cells.map((cell) => {
-        const speciesKeys = cell.cellPlantings.map((planting) => planting.plant.speciesProfile?.key ?? null);
+        const speciesKeys = cell.cellPlantings.map(
+          (planting) => planting.plant.speciesProfile?.key ?? guessSpeciesKey(planting.plant.commonName),
+        );
         return {
           column: cell.column,
           row: cell.row,
@@ -728,9 +737,10 @@ export async function getGardenSnapshot(
             startedAt: infection.startedAt,
           })),
           companionEffects: companionEffectsForCell(speciesKeys, index),
-          growth:
-            planting.biologyState && planting.plant.speciesProfile
-              ? {
+          growth: planting.biologyState
+            ? (() => {
+                const species = planting.plant.speciesProfile ?? fallbackSpecies;
+                return {
                   phenologyStage: planting.biologyState.phenologyStage as PhenologyStage,
                   leafFraction: planting.biologyState.leafFraction,
                   stemFraction: planting.biologyState.stemFraction,
@@ -740,9 +750,9 @@ export async function getGardenSnapshot(
                   waterContentIndex: planting.biologyState.waterContentIndex,
                   cumulativeStress: planting.biologyState.cumulativeStress,
                   dominantStressDial: planting.biologyState.dominantStressDial,
-                  growthHabit: planting.plant.speciesProfile.growthHabit as GrowthHabit,
-                  primaryColor: planting.plant.speciesProfile.primaryColor,
-                  matureHeightCm: planting.plant.speciesProfile.matureHeightCm,
+                  growthHabit: species.growthHabit as GrowthHabit,
+                  primaryColor: species.primaryColor,
+                  matureHeightCm: species.matureHeightCm,
                   micronutrientIndexFraction: cell.environmentState?.micronutrientIndexFraction ?? 0.6,
                   infection: planting.diseaseInfections[0]
                     ? {
@@ -750,8 +760,9 @@ export async function getGardenSnapshot(
                         severity: planting.diseaseInfections[0].severity,
                       }
                     : null,
-                }
-              : null,
+                };
+              })()
+            : null,
         })),
         };
       }),
@@ -798,9 +809,7 @@ export async function assignInventoryPlant(
       where: { id: input.plantId, archivedAt: null },
     });
     if (plant.seedQuantity < input.amount) {
-      throw new InventoryValidationError(
-        `Only ${plant.seedQuantity} ${plant.seedUnit} available.`,
-      );
+      throw new InventoryValidationError(`Only ${plant.seedQuantity} seeds available.`);
     }
 
     const cell = await tx.gridCell.findUniqueOrThrow({
@@ -848,7 +857,10 @@ export async function assignInventoryPlant(
           cellId: cell.id,
           plantId: plant.id,
           seedQuantityUsed: input.amount,
-          seedUnit: plant.seedUnit,
+          // Always "seed" now that seedQuantity is canonical seed-
+          // equivalents — CellPlanting.seedUnit is read nowhere except
+          // journal metadata, so this is safe to redefine.
+          seedUnit: "seed",
         },
       });
       await tx.gridCellEvent.create({
@@ -866,7 +878,7 @@ export async function assignInventoryPlant(
         cellId: cell.id,
         plantId: plant.id,
         seedQuantityUsed: input.amount,
-        seedUnit: plant.seedUnit,
+        seedUnit: "seed",
       },
     });
     await tx.gridCellEvent.create({

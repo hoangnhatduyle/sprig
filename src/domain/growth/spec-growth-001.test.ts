@@ -6,8 +6,14 @@ import { assignPlant, seedBed } from "../grid/grid-cell-service";
 import { createInventoryPlant } from "../plant-catalog/inventory-service";
 import { catchUpGrowth } from "./catch-up-service";
 import { getCurrentSimTime, setClockRate } from "./sim-clock-service";
-import { InvalidClockRateError } from "./errors";
-import { FALLBACK_SPECIES_KEY, ensureSpeciesCatalogSeeded, guessSpeciesKey } from "./species-catalog";
+import { InvalidClockRateError, SpeciesValidationError } from "./errors";
+import {
+  createCustomSpeciesProfile,
+  ensureSpeciesCatalogSeeded,
+  FALLBACK_SPECIES_KEY,
+  guessSpeciesKey,
+  listSpeciesProfiles,
+} from "./species-catalog";
 import { getOrGenerateWeatherDay } from "@/domain/weather/weather-service";
 
 // Traces to: /home/hoang/projects/Sprig/.claude/specifications/SPEC-GROWTH-001.yaml
@@ -186,7 +192,7 @@ describe("SPEC-GROWTH-001", () => {
   describe("species-catalog", () => {
     it("guesses a seeded species key from a free-typed common name, falling back for anything unrecognized", () => {
       expect(guessSpeciesKey("Roma Tomato")).toBe("tomato");
-      expect(guessSpeciesKey("Baby Spinach")).toBe("lettuce");
+      expect(guessSpeciesKey("Baby Spinach")).toBe("spinach");
       expect(guessSpeciesKey("Sea Kraken")).toBe(FALLBACK_SPECIES_KEY);
     });
 
@@ -196,6 +202,66 @@ describe("SPEC-GROWTH-001", () => {
       await ensureSpeciesCatalogSeeded(prisma);
       const tomato = await prisma.speciesProfile.findUniqueOrThrow({ where: { key: "tomato" } });
       expect(tomato.matureHeightCm).toBe(999);
+    });
+
+    it("createCustomSpeciesProfile validates numeric bounds and hex color", async () => {
+      const base = {
+        displayName: "Test Species",
+        growthHabit: "UPRIGHT_BUSH" as const,
+        baseTempC: 10,
+        gddToGerminate: 50,
+        gddToVegetative: 150,
+        gddToFlowering: 300,
+        gddToFruiting: 400,
+        gddToMaturity: 600,
+        heatStressThresholdC: 30,
+        coldStressThresholdC: 5,
+        matureHeightCm: 50,
+        canopyWidthCm: 40,
+        primaryColor: "#4a8f3a",
+      };
+
+      await expect(
+        createCustomSpeciesProfile(prisma, { ...base, primaryColor: "not-a-color" }),
+      ).rejects.toBeInstanceOf(SpeciesValidationError);
+
+      await expect(
+        createCustomSpeciesProfile(prisma, { ...base, heatStressThresholdC: 5, coldStressThresholdC: 10 }),
+      ).rejects.toBeInstanceOf(SpeciesValidationError);
+
+      const created = await createCustomSpeciesProfile(prisma, base);
+      expect(created.displayName).toBe("Test Species");
+      expect(created.isFallbackDefault).toBe(false);
+    });
+
+    it("createCustomSpeciesProfile auto-uniquifies the slug on a displayName collision", async () => {
+      const base = {
+        displayName: "Roma",
+        growthHabit: "VINING" as const,
+        baseTempC: 10,
+        gddToGerminate: 50,
+        gddToVegetative: 150,
+        gddToFlowering: 300,
+        gddToFruiting: 400,
+        gddToMaturity: 600,
+        heatStressThresholdC: 30,
+        coldStressThresholdC: 5,
+        matureHeightCm: 50,
+        canopyWidthCm: 40,
+        primaryColor: "#4a8f3a",
+      };
+
+      const first = await createCustomSpeciesProfile(prisma, base);
+      const second = await createCustomSpeciesProfile(prisma, base);
+
+      expect(first.key).toBe("roma");
+      expect(second.key).toBe("roma-2");
+    });
+
+    it("listSpeciesProfiles includes the broadened catalog", async () => {
+      const list = await listSpeciesProfiles(prisma);
+      const keys = list.map((entry) => entry.key);
+      expect(keys).toEqual(expect.arrayContaining(["cabbage", "pea", "melon", "corn"]));
     });
   });
 });
