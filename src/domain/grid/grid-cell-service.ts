@@ -416,6 +416,17 @@ export interface PlantingGrowthView {
   growthHabit: GrowthHabit;
   primaryColor: string;
   matureHeightCm: number;
+  // GDD accumulator + the four stage thresholds this planting's species uses
+  // to advance phenology (see growth-engine-service.ts's module-private
+  // nextPhenologyStage, which this view intentionally does NOT import — see
+  // growth-progress.ts in components/garden for the UI-layer mirror of that
+  // stage-order logic, following this file's existing "local mirror" pattern
+  // for PhenologyStage above).
+  accumulatedGdd: number;
+  gddToVegetative: number;
+  gddToFlowering: number;
+  gddToFruiting: number;
+  gddToMaturity: number;
   // Duplicated from the cell's CellEnvironmentView (not planting-specific,
   // but companion plantings in the same cell share one soil) so Plant.tsx's
   // chlorosis tint can stay a pure function of the one `growth` prop it
@@ -753,6 +764,11 @@ export async function getGardenSnapshot(
                   growthHabit: species.growthHabit as GrowthHabit,
                   primaryColor: species.primaryColor,
                   matureHeightCm: species.matureHeightCm,
+                  accumulatedGdd: planting.biologyState.accumulatedGdd,
+                  gddToVegetative: species.gddToVegetative,
+                  gddToFlowering: species.gddToFlowering,
+                  gddToFruiting: species.gddToFruiting,
+                  gddToMaturity: species.gddToMaturity,
                   micronutrientIndexFraction: cell.environmentState?.micronutrientIndexFraction ?? 0.6,
                   infection: planting.diseaseInfections[0]
                     ? {

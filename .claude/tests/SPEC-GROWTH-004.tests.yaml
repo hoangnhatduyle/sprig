@@ -1,0 +1,38 @@
+spec_id: SPEC-GROWTH-004
+generated_at: 2026-08-04T00:00:00.000Z
+cases:
+  - id: T-SPEC-GROWTH-004-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-GROWTH-004#AC-1
+    assertion: given a planting with accumulatedGdd between its species' gddToVegetative and gddToFlowering thresholds, when the cell is selected in CellPicker, then GrowthReadout displays a progress indicator toward FLOWERING derived from those two threshold values, using the same meter pattern as the existing Sustained stress readout
+    invariant: false
+  - id: T-SPEC-GROWTH-004-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-GROWTH-004#AC-2
+    assertion: given a planting whose species has a matureHeightCm value, when displayed in GrowthReadout, then an estimated current height is shown alongside the mature height, clearly labeled as an estimate
+    invariant: false
+  - id: T-SPEC-GROWTH-004-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-GROWTH-004#AC-3
+    assertion: given a cell with a planting that has no growth snapshot yet (growth is null), when the cell is selected, then GrowthReadout renders without the new progress/height fields and without crashing, matching its existing null early-return
+    invariant: true
+  - id: T-SPEC-GROWTH-004-AC-AC_4
+    kind: acceptance
+    traces_to: SPEC-GROWTH-004#AC-4
+    assertion: given a planting whose phenologyStage is MATURE or SENESCENT, when displayed, then the readout handles the terminal-stage case gracefully (e.g. shows "fully grown") rather than a broken, negative, or NaN progress value
+    invariant: true
+  - id: T-SPEC-GROWTH-004-NC-NC_SPRIG_GROWTH4_NO_FABRICATED_ETA
+    kind: negative-constraint
+    traces_to: SPEC-GROWTH-004#NC-SPRIG-GROWTH4-NO-FABRICATED-ETA
+    assertion: The readout MUST NOT present a fabricated day-count time estimate (e.g. "in 9 days") not backed by a real computed GDD-accumulation rate; only stage-progress percentage is shown.
+    invariant: true
+  - id: T-SPEC-GROWTH-004-NC-NC_SPRIG_GROWTH4_NO_ENGINE_CHANGE
+    kind: negative-constraint
+    traces_to: SPEC-GROWTH-004#NC-SPRIG-GROWTH4-NO-ENGINE-CHANGE
+    assertion: This spec MUST NOT modify growth-engine-service.ts, daily-step-orchestrator.ts, or catch-up-service.ts.
+    invariant: true
+  - id: T-SPEC-GROWTH-004-NC-NC_SPRIG_GROWTH4_ESTIMATE_LABELED
+    kind: negative-constraint
+    traces_to: SPEC-GROWTH-004#NC-SPRIG-GROWTH4-ESTIMATE-LABELED
+    assertion: The derived current-height value MUST be visibly labeled as an estimate in the UI, never presented as a precise measurement.
+    invariant: true

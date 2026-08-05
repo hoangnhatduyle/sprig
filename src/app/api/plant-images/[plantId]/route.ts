@@ -20,7 +20,15 @@ export async function GET(
     return new Response(new Uint8Array(image), {
       headers: {
         "Content-Type": plant.imageMimeType,
-        "Cache-Control": "private, max-age=3600",
+        // public (not private): nothing here is per-viewer — the same
+        // plantId always resolves to the same bytes for anyone who can hit
+        // this route (there's no auth boundary to protect), so letting
+        // Vercel's edge CDN cache the response, not just the browser, avoids
+        // a Prisma + Vercel Blob round trip on every cache miss. Same
+        // max-age as before — re-uploads (storePlantImage overwrites
+        // imageFilename) stay visible within the same 1h window this route
+        // already tolerated under "private".
+        "Cache-Control": "public, max-age=3600",
         "X-Content-Type-Options": "nosniff",
       },
     });

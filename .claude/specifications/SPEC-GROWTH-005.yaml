@@ -1,0 +1,71 @@
+id: SPEC-GROWTH-005
+version: 0.1.0
+kind: domain
+title: Manual Growth-Stage Override (Replay-to-Stage)
+status: draft
+context_and_scope:
+  in_scope:
+    - "A new server action (e.g. overridePlantingStageAction, added to src/app/actions.ts alongside the existing assignPlantAction/applyMulchAction-style actions) taking a CellTarget-style identifier plus a requested PhenologyStage, restricted to GERMINATING | VEGETATIVE | FLOWERING | FRUITING | MATURE."
+    - "A new replay service (e.g. src/domain/growth/stage-override-service.ts) that: starts from the same zero-state a brand-new planting's first catch-up run starts from (schema.prisma's PlantingBiologyState column defaults — the same state catch-up-service.ts:437-439 creates with no explicit field overrides), then repeatedly calls growth-engine-service.ts's stepDailyGrowth() with idealized/neutral DailyEnvironmentInputs (NEUTRAL_DIRECT_EFFECTS from growth-engine-service.ts:101-105, full soil moisture, full baseline light, zero pest/disease/allelopathic penalties, pollinatorActivity 1) until accumulatedGdd reaches the target stage's species GDD threshold (gddToVegetative / gddToFlowering / gddToFruiting / gddToMaturity from SpeciesProfile/species-catalog.ts)."
+    - "Explicit clean-slate reset of waterContentIndex to 1.0 and cumulativeStress to 0 as part of the replay result, regardless of the planting's prior values — confirmed product decision: an override represents the plant arriving at that stage in good health, not a blend with whatever health state it had before."
+    - "Persisting the replay result to PlantingBiologyState via a full-object write (matching catch-up-service.ts's own existing full-spread-update convention, ~lines 595-599), with updatedThroughDate explicitly set to the sim clock's current simulated day (sim-clock-service.ts) rather than left at its pre-override value — so the next catchUpGrowth() call advances zero additional days and does not immediately fast-forward past the state the user just set."
+    - "A UI control in CellPicker.tsx's existing Growth section (near GrowthReadout, currently lines 81-126): a stage selector plus a 'Set stage' action, following the file's existing runLifecycle/lifecycleMessage/isSubmitting pattern already used by Record harvest and Finish planting."
+  out_of_scope:
+    - "Overriding to SENESCENT or DEAD. Neither is reachable via a GDD-threshold replay — nextPhenologyStage() (growth-engine-service.ts:154-167) only ever derives GERMINATING through MATURE from accumulatedGdd; SENESCENT/DEAD are exogenous terminal states set by a different mechanism elsewhere in the pipeline, so forcing them through this replay pathway would fabricate a state the engine could never actually produce. A kill/retire override, if wanted, is a distinct future capability, not part of this spec."
+    - "A persistent 'locked' flag preventing future catch-up runs from advancing the plant further after an override. This spec relies solely on the updatedThroughDate cursor advancing to 'today' (see in_scope above) — no new schema column, no separate lock semantics."
+    - "Any change to growth-engine-service.ts's stepDailyGrowth/nextPhenologyStage, daily-step-orchestrator.ts, or catch-up-service.ts — the replay service is a new caller of the existing pure stepDailyGrowth function, not a modification of it."
+    - "Bulk or multi-cell override in one action call — one planting per call."
+    - "An override history/audit log distinct from the resulting PlantingBiologyState row — the spec does not track that an override happened, only its resulting state."
+    - "3D viewer treatment of an overridden planting — SPEC-VIEWER-004's stage-driven rendering already applies uniformly to any PlantingGrowthView regardless of how phenologyStage/biomass fractions were produced, so no viewer-side change is needed here."
+  external_dependencies: []
+  shared_schemas: []
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-GROWTH5-CLEAN-SLATE-RESET
+    message: The replay MUST reset waterContentIndex to 1.0 and cumulativeStress to 0 in the resulting BiologyState — an override always produces a clean-slate healthy arrival at the target stage, never a blend with the planting's pre-override health/stress values.
+    severity: high
+  - id: NC-SPRIG-GROWTH5-NEUTRAL-REPLAY-ONLY
+    message: The replay loop MUST feed stepDailyGrowth only idealized/neutral DailyEnvironmentInputs for every simulated day (NEUTRAL_DIRECT_EFFECTS, full water/light, zero pest/disease/allelopathic penalties) and MUST NOT read the planting's real historical weather, soil, or pest/disease state — the target state must be deterministic and reproducible for a given species+target-stage pair, independent of when the override is invoked.
+    severity: high
+  - id: NC-SPRIG-GROWTH5-CURSOR-ADVANCE
+    message: After writing the replayed BiologyState, updatedThroughDate MUST be set to the sim clock's current simulated day, never left at a stale pre-override value, so the immediately-following catchUpGrowth() call advances zero additional simulated days.
+    severity: high
+  - id: NC-SPRIG-GROWTH5-NO-TERMINAL-REPLAY
+    message: The override action MUST reject SENESCENT and DEAD as target stages with a clear error and perform no PlantingBiologyState write — those stages are not reachable via GDD-threshold replay under the engine's own nextPhenologyStage logic.
+    severity: high
+  - id: NC-SPRIG-GROWTH5-HISTORY-UNTOUCHED
+    message: The override action MUST NOT modify HarvestRecord rows, CellPlanting.plantedAt/removedAt, DiseaseInfection rows, or journal notes — only the target planting's PlantingBiologyState fields are rewritten.
+    severity: high
+acceptance_criteria:
+  - id: AC-1
+    given: an active planting currently in VEGETATIVE stage
+    when: the user overrides it to FRUITING
+    then: the resulting PlantingBiologyState has accumulatedGdd between the species' gddToFruiting and gddToMaturity thresholds, biomass fractions consistent with neutral-condition growth to that point, waterContentIndex equal to 1.0, and cumulativeStress equal to 0
+    invariant: false
+  - id: AC-2
+    given: a planting overridden to a stage earlier than its current one (e.g. FRUITING overridden back to VEGETATIVE)
+    when: the override completes
+    then: accumulatedGdd and biomass fractions match exactly what a fresh replay to VEGETATIVE produces, with no residual influence from the pre-override FRUITING state
+    invariant: true
+  - id: AC-3
+    given: a planting just overridden to a target stage on simulated day D
+    when: catchUpGrowth() is next called on the same simulated day D
+    then: it advances zero additional simulated days and the override's resulting state is unchanged
+    invariant: true
+  - id: AC-4
+    given: a request to override a planting to SENESCENT or DEAD
+    when: the override action is called
+    then: it is rejected with a clear error and no PlantingBiologyState write occurs
+    invariant: true
+  - id: AC-5
+    given: a planting with existing HarvestRecord rows and an active DiseaseInfection
+    when: its growth stage is overridden
+    then: those rows remain byte-for-byte unchanged
+    invariant: true
+depends_on:
+  - SPEC-GROWTH-001
+  - SPEC-GROWTH-002
+  - SPEC-GROWTH-003
+  - SPEC-GROWTH-004
+  - SPEC-PLANTUI-001
+constitution_rules: []

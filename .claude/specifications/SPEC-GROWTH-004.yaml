@@ -1,0 +1,57 @@
+id: SPEC-GROWTH-004
+version: 0.1.0
+kind: domain
+title: Human-Readable Growth Progress Readout
+status: draft
+context_and_scope:
+  in_scope:
+    - "Expose accumulatedGdd and the current planting's species GDD stage thresholds (gddToVegetative, gddToFlowering, gddToFruiting, gddToMaturity — already present on SpeciesProfile/species-catalog.ts, already in scope as `species` at the exact site that builds PlantingGrowthView) through the read model: add accumulatedGdd plus the four threshold fields to the PlantingGrowthView interface (src/domain/grid/grid-cell-service.ts, currently lines 403-431) and to the object literal that populates it (currently lines 741-764), both values coming from data already loaded there (planting.biologyState.accumulatedGdd, species.gddTo*) with no new query."
+    - "A 'progress to next stage' indicator in CellPicker.tsx's GrowthReadout (currently lines 81-126): computed client-side as (accumulatedGdd - currentStageThreshold) / (nextStageThreshold - currentStageThreshold), rendered the same way the existing 'Sustained stress' <meter> (lines 111-123) already is, so it matches the panel's established visual language rather than inventing a new pattern."
+    - "A current-height estimate alongside the already-passed-but-unused matureHeightCm field (grid-cell-service.ts line 418, PlantingGrowthView; never read today in CellPicker.tsx): derived as matureHeightCm * biomassFraction using the same biomassFraction proxy Plant.tsx already computes (leafFraction + stemFraction + rootFraction * 0.3), displayed as an explicitly-labeled estimate (e.g. '~24cm of an expected 150cm'), not presented as a measured value."
+    - "Optional companion copy pass: friendlier per-stage explanatory text alongside status-display.ts's existing terse PHENOLOGY_LABEL map (currently lines 40-48), e.g. pairing the label with a short clause a non-technical gardener would understand."
+  out_of_scope:
+    - "A real day-count ETA (e.g. 'flowers in 9 days') — would require a GDD-accumulation-rate estimate not currently computed or persisted anywhere in the pipeline; deferred until a trailing-average GDD/day value exists server-side. This phase ships a percentage-of-stage-progress indicator only."
+    - "Any change to growth-engine-service.ts's stepDailyGrowth, daily-step-orchestrator.ts, or catch-up-service.ts — this spec only reads accumulatedGdd and species thresholds that are already computed and persisted; it adds a read-model + UI surface, not new biology math."
+    - "The manual growth-stage override feature (a separate, larger-scoped capability involving a new server action and a replay-based BiologyState reset) — intentionally a distinct future spec, not bundled here."
+    - "3D viewer changes — any visual differentiation by phenology stage is SPEC-VIEWER-004's concern, not this one's."
+  external_dependencies: []
+  shared_schemas:
+    - "PlantingGrowthView additions (src/domain/grid/grid-cell-service.ts): accumulatedGdd (number), plus the four species GDD stage thresholds needed to compute progress-to-next-stage — no new Prisma columns; both accumulatedGdd (PlantingBiologyState) and the gddTo* fields (SpeciesProfile) already exist and are already loaded at the construction site, just not currently copied into the view."
+  state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-GROWTH4-NO-FABRICATED-ETA
+    message: The readout MUST NOT present a fabricated day-count time estimate (e.g. "in 9 days") that isn't backed by a real computed GDD-accumulation rate — where only stage-progress percentage is available, display that, not a misleadingly precise day count.
+    severity: medium
+  - id: NC-SPRIG-GROWTH4-NO-ENGINE-CHANGE
+    message: This spec MUST NOT modify growth-engine-service.ts, daily-step-orchestrator.ts, or catch-up-service.ts — it only reads accumulatedGdd and species GDD thresholds that are already computed and persisted, exposing them through the existing PlantingGrowthView read-model pipeline.
+    severity: high
+  - id: NC-SPRIG-GROWTH4-ESTIMATE-LABELED
+    message: The derived current-height value (matureHeightCm * biomassFraction) MUST be visibly labeled as an estimate in the UI, never presented as a precise measurement, since biomassFraction is a stylized proxy, not a real height reading.
+    severity: low
+acceptance_criteria:
+  - id: AC-1
+    given: a planting with accumulatedGdd between its species' gddToVegetative and gddToFlowering thresholds
+    when: the cell is selected in CellPicker
+    then: GrowthReadout displays a progress indicator toward FLOWERING derived from those two threshold values, using the same meter pattern as the existing Sustained stress readout
+    invariant: false
+  - id: AC-2
+    given: a planting whose species has a matureHeightCm value
+    when: displayed in GrowthReadout
+    then: an estimated current height is shown alongside the mature height, clearly labeled as an estimate
+    invariant: false
+  - id: AC-3
+    given: a cell with a planting that has no growth snapshot yet (growth is null, e.g. before its first catch-up run)
+    when: the cell is selected
+    then: GrowthReadout renders without the new progress/height fields and without crashing, matching its existing null early-return (lines 82-84)
+    invariant: true
+  - id: AC-4
+    given: a planting whose phenologyStage is MATURE or SENESCENT (no further forward GDD threshold applies in nextPhenologyStage's progression)
+    when: displayed
+    then: the readout handles the terminal-stage case gracefully (e.g. shows "fully grown" rather than a broken, negative, or NaN progress value)
+    invariant: true
+depends_on:
+  - SPEC-GROWTH-001
+  - SPEC-GROWTH-002
+  - SPEC-GROWTH-003
+  - SPEC-PLANTUI-001
+constitution_rules: []

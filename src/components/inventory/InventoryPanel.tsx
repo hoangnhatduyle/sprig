@@ -890,15 +890,18 @@ export function InventoryPanel({ inventory, disabled, onChanged, bare = false }:
             ))}
             {!totals.length && <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>No harvests recorded yet.</p>}
           </div>
-          <ol className="space-y-2">
-            {yields.map((entry) => (
-              <li key={entry.id} className="rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
-                <div className="flex justify-between gap-3"><strong>{entry.plantName}</strong><span>{entry.amount} {entry.unit}</span></div>
-                <p style={{ color: "var(--color-text-muted)" }}>{new Date(entry.harvestedAt).toLocaleDateString(undefined, { timeZone: "UTC" })} · {entry.bedName}, column {entry.column}, row {entry.row}</p>
-                {entry.notes && <p className="mt-1">{entry.notes}</p>}
-              </li>
-            ))}
-          </ol>
+          <div className="space-y-2">
+            <h3 className="font-semibold">Harvests</h3>
+            <ol className="space-y-2">
+              {yields.map((entry) => (
+                <li key={entry.id} className="rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="flex justify-between gap-3"><strong>{entry.plantName}</strong><span>{entry.amount} {entry.unit}</span></div>
+                  <p style={{ color: "var(--color-text-muted)" }}>{new Date(entry.harvestedAt).toLocaleDateString(undefined, { timeZone: "UTC" })} · {entry.bedName}, column {entry.column}, row {entry.row}</p>
+                  {entry.notes && <p className="mt-1">{entry.notes}</p>}
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
       )}
     </Wrapper>

@@ -15,7 +15,15 @@ import {
 import type { GardenSnapshot } from "@/domain/grid/grid-cell-service";
 import { catchUpGrowth } from "@/domain/growth/catch-up-service";
 import { resetSimClockToNow, setClockRate } from "@/domain/growth/sim-clock-service";
-import { InvalidClockRateError, SpeciesValidationError } from "@/domain/growth/errors";
+import { overridePlantingStage } from "@/domain/growth/stage-override-service";
+import type { PhenologyStage } from "@/domain/growth/growth-engine-service";
+import {
+  InvalidClockRateError,
+  InvalidTargetStageError,
+  PlantingNotFoundError,
+  PlantingRemovedError,
+  SpeciesValidationError,
+} from "@/domain/growth/errors";
 import {
   createCustomSpeciesProfile,
   getFallbackSpeciesProfile,
@@ -552,6 +560,38 @@ export async function advancePlantingAction(
     return { ok: true };
   } catch (error) {
     return { ok: false, error: describeInventoryError(error) };
+  }
+}
+
+function describeGrowthOverrideError(error: unknown): string {
+  if (error instanceof InvalidTargetStageError) {
+    return "That stage can't be set directly.";
+  }
+  if (error instanceof PlantingNotFoundError) {
+    return "That planting no longer exists.";
+  }
+  if (error instanceof PlantingRemovedError) {
+    return "That planting has already been finished and can't be changed.";
+  }
+  console.error("overridePlantingStageAction failed", error);
+  return "Something went wrong setting the growth stage.";
+}
+
+export async function overridePlantingStageAction(input: {
+  cellPlantingId: string;
+  targetStage: string;
+}): Promise<ActionResult> {
+  if (!input || typeof input.cellPlantingId !== "string" || !input.cellPlantingId || typeof input.targetStage !== "string") {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    await overridePlantingStage(prisma, {
+      cellPlantingId: input.cellPlantingId,
+      targetStage: input.targetStage as PhenologyStage,
+    });
+    return { ok: true };
+  } catch (error: unknown) {
+    return { ok: false, error: describeGrowthOverrideError(error) };
   }
 }
 

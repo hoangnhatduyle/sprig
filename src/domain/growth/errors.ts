@@ -12,3 +12,9 @@ class GrowthDomainError extends Error {
 export class InvalidClockRateError extends GrowthDomainError {}
 
 export class SpeciesValidationError extends GrowthDomainError {}
+
+export class InvalidTargetStageError extends GrowthDomainError {}
+
+export class PlantingNotFoundError extends GrowthDomainError {}
+
+export class PlantingRemovedError extends GrowthDomainError {}

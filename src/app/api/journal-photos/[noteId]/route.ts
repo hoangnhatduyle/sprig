@@ -20,7 +20,14 @@ export async function GET(
     return new Response(new Uint8Array(image), {
       headers: {
         "Content-Type": note.photoMimeType,
-        "Cache-Control": "private, max-age=3600",
+        // public + immutable: JournalNote is append-only (NC-SPRIG-JOURNAL-
+        // NOTE-APPEND-ONLY — see prisma/schema.prisma) and photoFilename is
+        // set once at creation, never updated, so a given noteId's photo
+        // bytes can never change. Safe to let both the browser and Vercel's
+        // edge CDN cache indefinitely instead of re-hitting Prisma + Vercel
+        // Blob on every cache miss; there's no per-viewer auth boundary to
+        // protect by keeping this "private".
+        "Cache-Control": "public, max-age=31536000, immutable",
         "X-Content-Type-Options": "nosniff",
       },
     });

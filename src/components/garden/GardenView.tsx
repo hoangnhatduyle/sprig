@@ -22,6 +22,7 @@ import {
   assignInventoryPlantAction,
   applyWeedingAction,
   createJournalNoteAction,
+  overridePlantingStageAction,
   recordHarvestAction,
   refreshWorkspaceAction,
   removePlantingAction,
@@ -508,6 +509,7 @@ export function GardenView({
               onRefresh={refreshAll}
               recordHarvest={recordHarvestAction}
               advancePlanting={advancePlantingAction}
+              overridePlantingStage={overridePlantingStageAction}
               applyMulch={applyMulchAction}
               applyCompost={applyCompostAction}
               applyFertilizer={applyFertilizerAction}

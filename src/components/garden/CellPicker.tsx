@@ -12,6 +12,7 @@ import {
   healthBand,
   type GrowthView,
 } from "./stress-display";
+import { estimatedHeightCm, stageProgress } from "./growth-progress";
 import { DISEASE_LABEL, diseaseSeverityBand } from "./pest-display";
 import { COMPANION_EFFECT_ICON, COMPANION_EFFECT_LABEL } from "./companion-effect-display";
 import {
@@ -45,6 +46,7 @@ type CellPickerProps = {
     notes?: string;
   }) => Promise<ActionResult>;
   advancePlanting?: (target: Omit<CellTarget, "plantId">, event: "finish") => Promise<ActionResult>;
+  overridePlantingStage?: (input: { cellPlantingId: string; targetStage: string }) => Promise<ActionResult>;
   applyMulch?: (input: { bedId: string; column: number; row: number; depthMm: number }) => Promise<ActionResult>;
   applyCompost?: (input: { bedId: string; column: number; row: number; amount: number }) => Promise<ActionResult>;
   applyFertilizer?: (input: {
@@ -85,6 +87,8 @@ function GrowthReadout({ growth }: { growth: GrowthView | null }) {
   const canopy = Math.round((growth.leafFraction + growth.stemFraction) * 50);
   const fruit = Math.round(growth.fruitFraction * 100);
   const band = healthBand(growth);
+  const progress = stageProgress(growth);
+  const heightCm = Math.round(estimatedHeightCm(growth));
   return (
     <div className="mt-2">
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -121,6 +125,27 @@ function GrowthReadout({ growth }: { growth: GrowthView | null }) {
           aria-label={`Sustained stress: ${Math.round(growth.cumulativeStress * 100)}%`}
         />
       </label>
+      {progress ? (
+        <label className="mt-2 block text-xs" style={{ color: "var(--color-text-muted)" }}>
+          Progress to {PHENOLOGY_LABEL[progress.nextStage] ?? progress.nextStage}
+          {/* <progress>, not <meter>: this is completion toward a goal, not a
+              gauge/level reading (the latter is what Sustained stress above
+              and InfectionReadout's severity meter correctly use <meter> for). */}
+          <progress
+            className="ml-2 align-middle"
+            max={1}
+            value={progress.fraction}
+            aria-label={`Progress to ${PHENOLOGY_LABEL[progress.nextStage] ?? progress.nextStage}: ${Math.round(progress.fraction * 100)}%`}
+          />
+        </label>
+      ) : (
+        <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+          Fully grown
+        </p>
+      )}
+      <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+        ~{heightCm}cm of an expected {Math.round(growth.matureHeightCm)}cm (estimate)
+      </p>
     </div>
   );
 }
@@ -380,6 +405,7 @@ export function CellPicker({
   onRefresh,
   recordHarvest,
   advancePlanting,
+  overridePlantingStage,
   applyMulch,
   applyCompost,
   applyFertilizer,
@@ -415,6 +441,8 @@ export function CellPicker({
   // companionEffectsForCell for how this was computed server-side).
   const primaryCompanionEffects = cell.plantings?.[0]?.companionEffects ?? [];
   const [harvestPlantingId, setHarvestPlantingId] = useState(cell.plantings?.[0]?.id ?? "");
+  const [overridePlantingId, setOverridePlantingId] = useState(cell.plantings?.[0]?.id ?? "");
+  const [overrideTargetStage, setOverrideTargetStage] = useState<string>("VEGETATIVE");
   const [harvestAmount, setHarvestAmount] = useState("1");
   const [harvestUnit, setHarvestUnit] = useState("item");
   const [harvestNotes, setHarvestNotes] = useState("");
@@ -579,6 +607,54 @@ export function CellPicker({
               this panel reports what the engine is doing instead of driving
               it. */}
           <GrowthReadout growth={cell.plantings?.[0]?.growth ?? null} />
+          {overridePlantingStage && cell.plantings?.length ? (
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="text-sm">
+                Plant
+                <select
+                  value={overridePlantingId}
+                  onChange={(event) => setOverridePlantingId(event.target.value)}
+                  className="mt-1 min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3"
+                  style={{ borderColor: "var(--color-border)" }}
+                >
+                  {cell.plantings.map((planting) => (
+                    <option key={planting.id} value={planting.id}>
+                      {plantName(plants, planting.plantId)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Set stage
+                <select
+                  value={overrideTargetStage}
+                  onChange={(event) => setOverrideTargetStage(event.target.value)}
+                  className="mt-1 min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3"
+                  style={{ borderColor: "var(--color-border)" }}
+                >
+                  {(["GERMINATING", "VEGETATIVE", "FLOWERING", "FRUITING", "MATURE"] as const).map((stage) => (
+                    <option key={stage} value={stage}>
+                      {PHENOLOGY_LABEL[stage] ?? stage}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={lifecycleBusy}
+                onClick={() =>
+                  void runLifecycle(
+                    () => overridePlantingStage({ cellPlantingId: overridePlantingId, targetStage: overrideTargetStage }),
+                    "Growth stage updated.",
+                  )
+                }
+                className={`rounded-md border px-3 ${MIN_TOUCH_TARGET}`}
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                Set stage
+              </button>
+            </div>
+          ) : null}
           {advancePlanting && cell.status === "GROWING" && recordHarvest && cell.plantings?.length ? (
             <form
               className="mt-3 grid gap-2 sm:grid-cols-2"

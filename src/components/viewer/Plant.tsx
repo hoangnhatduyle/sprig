@@ -73,6 +73,11 @@ const HABIT_MAX_HEIGHT: Record<GrowthHabit, number> = {
   ROOT_CROP: 0.08,
 };
 
+// MATURE/FRUITING crowns read slightly fuller than VEGETATIVE at the same
+// biomassFraction — maturity communicated via fullness, not height alone
+// (AC-3). `height` is untouched by this multiplier on purpose.
+const MATURE_CROWN_FULLNESS = 1.15;
+
 const FALLBACK_HEIGHT: Record<CellStatus, number> = {
   EMPTY: 0,
   PLANTED: 0.08,
@@ -108,6 +113,16 @@ const WILT_COLOR = "#a8863f";
 const DEAD_COLOR = "#6b5842";
 const FLOWER_COLOR = "#e8c94a";
 const FRUIT_COLOR = "#c0432f";
+// A warm amber/gold, distinct from WILT_COLOR's muted brown, CHLOROSIS_COLOR's
+// yellow-green, and DISEASE_COLOR's dark speckled brown below — natural
+// senescence (autumn-leaf aging) reads as a richer, warmer hue than any of
+// those stress symptoms, so a healthy plant reaching SENESCENT doesn't get
+// mistaken for one of them (NC-SPRIG-VIEWER3-STAGE-DISTINCT-FROM-STRESS).
+const SENESCENT_COLOR = "#c9922f";
+// How far a SENESCENT plant's color drifts toward SENESCENT_COLOR — blended
+// as the new `baseColor` below (not a hard override), so a senescent plant
+// that's ALSO wilted/chlorotic/diseased still shows both signals layered.
+const SENESCENT_BLEND_AMOUNT = 0.55;
 // A yellow-green, distinct from both the healthy palette and WILT_COLOR's
 // brown — chlorosis (iron/micronutrient deficiency) reads as yellowing
 // leaves, not drought-browning, a real and visually distinct symptom
@@ -141,7 +156,11 @@ function foliageColor(growth: PlantGrowthProps): string {
   if (growth.phenologyStage === "DEAD") {
     return DEAD_COLOR;
   }
-  const wilted = lerpColor(growth.primaryColor, WILT_COLOR, wiltAmount(growth));
+  const baseColor =
+    growth.phenologyStage === "SENESCENT"
+      ? lerpColor(growth.primaryColor, SENESCENT_COLOR, SENESCENT_BLEND_AMOUNT)
+      : growth.primaryColor;
+  const wilted = lerpColor(baseColor, WILT_COLOR, wiltAmount(growth));
   const chlorosisAmount = clamp01(
     (CHLOROSIS_HEALTHY_THRESHOLD - growth.micronutrientIndexFraction) / CHLOROSIS_HEALTHY_THRESHOLD,
   );
@@ -169,7 +188,7 @@ function StressRing({ growth, crownSize }: { growth: PlantGrowthProps; crownSize
   );
 }
 
-function UprightBush({ growth, height, crownSize, color }: { growth: PlantGrowthProps; height: number; crownSize: number; color: string }) {
+export function UprightBush({ growth, height, crownSize, color }: { growth: PlantGrowthProps; height: number; crownSize: number; color: string }) {
   return (
     <group>
       <mesh position={[0, height / 2, 0]}>
@@ -196,7 +215,7 @@ function UprightBush({ growth, height, crownSize, color }: { growth: PlantGrowth
   );
 }
 
-function Vining({ growth, height, crownSize, color, seed }: { growth: PlantGrowthProps; height: number; crownSize: number; color: string; seed: number }) {
+export function Vining({ growth, height, crownSize, color, seed }: { growth: PlantGrowthProps; height: number; crownSize: number; color: string; seed: number }) {
   const lean = ((seed % 7) - 3) * 0.03;
   const segments = 3;
   return (
@@ -225,7 +244,7 @@ function Vining({ growth, height, crownSize, color, seed }: { growth: PlantGrowt
   );
 }
 
-function RosetteLeafy({ height, crownSize, color, seed }: { height: number; crownSize: number; color: string; seed: number }) {
+export function RosetteLeafy({ height, crownSize, color, seed }: { height: number; crownSize: number; color: string; seed: number }) {
   const leafCount = 5;
   return (
     <group>
@@ -251,7 +270,7 @@ function RosetteLeafy({ height, crownSize, color, seed }: { height: number; crow
 // crops (carrot, radish) show almost nothing above soil, which is the
 // visual point of this archetype existing separately from RosetteLeafy
 // (a lettuce's whole plant IS its visible leaves; a carrot's isn't).
-function RootCrop({ height, crownSize, color, growth, seed }: { height: number; crownSize: number; color: string; growth: PlantGrowthProps; seed: number }) {
+export function RootCrop({ height, crownSize, color, growth, seed }: { height: number; crownSize: number; color: string; growth: PlantGrowthProps; seed: number }) {
   const leafCount = 3;
   return (
     <group>
@@ -275,6 +294,43 @@ function RootCrop({ height, crownSize, color, growth, seed }: { height: number; 
           <meshLambertMaterial color={FRUIT_COLOR} />
         </mesh>
       )}
+    </group>
+  );
+}
+
+// GERMINATING-stage minimal seedling — deliberately habit-agnostic (no
+// `growthHabit` prop): a small stem plus one or two tiny leaf primitives,
+// not the full per-habit crown geometry, so every habit reads as the same
+// "just sprouted" silhouette (AC-1). Sized from `biomassFraction` alone
+// rather than HABIT_MAX_HEIGHT, so it never adopts a habit's full-crown
+// scale. Every mesh opts out of raycasting via the existing NO_RAYCAST
+// convention (line 22), same as StressRing, so it can never win a pointer
+// hit ahead of the per-cell overlay mesh (NC-SPRIG-VIEWER3-NO-RAYCAST-REGRESSION).
+export function Seedling({ biomassFraction, color, seed }: { biomassFraction: number; color: string; seed: number }) {
+  const stemHeight = 0.03 + biomassFraction * 0.03;
+  const leafSize = 0.015 + biomassFraction * 0.015;
+  const leafCount = 1 + (seed % 2 === 0 ? 1 : 0);
+  return (
+    <group>
+      <mesh position={[0, stemHeight / 2, 0]} raycast={NO_RAYCAST}>
+        <cylinderGeometry args={[0.004, 0.006, stemHeight, 5]} />
+        <meshLambertMaterial color="#4a6b3a" />
+      </mesh>
+      {Array.from({ length: leafCount }, (_, i) => {
+        const angle = (i / Math.max(leafCount, 1)) * Math.PI * 2 + seed;
+        return (
+          <mesh
+            key={i}
+            position={[Math.cos(angle) * leafSize * 0.8, stemHeight, Math.sin(angle) * leafSize * 0.8]}
+            rotation={[0.4, angle, 0]}
+            scale={[1, 0.5, 1]}
+            raycast={NO_RAYCAST}
+          >
+            <icosahedronGeometry args={[leafSize, 0]} />
+            <meshLambertMaterial color={color} flatShading />
+          </mesh>
+        );
+      })}
     </group>
   );
 }
@@ -308,12 +364,33 @@ export function Plant({ status, growth, x, z, seed }: PlantProps) {
   }
 
   const biomassFraction = clamp01(growth.leafFraction + growth.stemFraction + growth.rootFraction * 0.3);
+  const color = foliageColor(growth);
+
+  // Checked before any habit-scaled sizing, so it structurally takes
+  // precedence over the growthHabit switch below rather than just visually
+  // coinciding with it (AC-1). Gated on biomassFraction directly rather than
+  // the habit-scaled `height` guard used below — HABIT_MAX_HEIGHT.ROOT_CROP
+  // (0.08) means a freshly-germinated low biomassFraction could compute a
+  // habit-scaled height under the 0.005 threshold and hide the seedling
+  // entirely for that one habit, which the seedling look must not depend on.
+  if (growth.phenologyStage === "GERMINATING") {
+    if (biomassFraction <= 0.01) {
+      return null;
+    }
+    return (
+      <group position={[x, 0.08, z]} rotation={[0, seed, 0]}>
+        <StressRing growth={growth} crownSize={0.05} />
+        <Seedling biomassFraction={biomassFraction} color={color} seed={seed} />
+      </group>
+    );
+  }
+
   const height = HABIT_MAX_HEIGHT[growth.growthHabit] * biomassFraction;
   if (height <= 0.005) {
     return null;
   }
-  const crownSize = 0.05 + biomassFraction * (0.05 + (seed % 5) * 0.006);
-  const color = foliageColor(growth);
+  const fullness = growth.phenologyStage === "MATURE" || growth.phenologyStage === "FRUITING" ? MATURE_CROWN_FULLNESS : 1;
+  const crownSize = (0.05 + biomassFraction * (0.05 + (seed % 5) * 0.006)) * fullness;
   // Droop is nested inside the seed-based Y rotation (not merged into the
   // same rotation prop) so per-plant orientation variance and wilt-drooping
   // stay independent axes of variation. The stress ring sits outside the

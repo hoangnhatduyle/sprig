@@ -1,0 +1,33 @@
+spec_id: SPEC-VIEWER-004
+generated_at: 2026-08-04T21:40:37.007Z
+cases:
+  - id: T-SPEC-VIEWER-004-AC-AC_1
+    kind: acceptance
+    traces_to: SPEC-VIEWER-004#AC-1
+    assertion: given a planting in GERMINATING phenology stage, when rendered in the 3D viewer, then it shows the new minimal seedling shape regardless of its species' growthHabit, visually distinguishable from a full-crown shape at a similar biomassFraction
+    invariant: false
+  - id: T-SPEC-VIEWER-004-AC-AC_2
+    kind: acceptance
+    traces_to: SPEC-VIEWER-004#AC-2
+    assertion: given a planting whose phenologyStage has advanced to SENESCENT while waterContentIndex and cumulativeStress remain in healthy ranges (no drought/stress present), when rendered, then its foliage color reads as senescent/aging, not as wilted, chlorotic, or diseased
+    invariant: false
+  - id: T-SPEC-VIEWER-004-AC-AC_3
+    kind: acceptance
+    traces_to: SPEC-VIEWER-004#AC-3
+    assertion: given two same-species plantings with equal biomassFraction, one MATURE and one VEGETATIVE, when both are rendered, then the MATURE planting reads visually fuller via the crownSize multiplier, not just taller
+    invariant: false
+  - id: T-SPEC-VIEWER-004-AC-AC_4
+    kind: acceptance
+    traces_to: SPEC-VIEWER-004#AC-4
+    assertion: given the existing e2e suite (e2e/simulation-surfacing.spec.ts and related cell-selection specs), when run after this spec's changes, then 3D cell selection/raycast behavior shows no regression — clicking a cell still resolves to the cell overlay, never to a decorative plant mesh
+    invariant: true
+  - id: T-SPEC-VIEWER-004-NC-NC_SPRIG_VIEWER3_NO_BIOLOGY_CHANGE
+    kind: negative-constraint
+    traces_to: SPEC-VIEWER-004#NC-SPRIG-VIEWER3-NO-BIOLOGY-CHANGE
+    assertion: This spec MUST NOT modify growth-engine-service.ts, daily-step-orchestrator.ts, catch-up-service.ts, or any PlantingBiologyState field/column — it is a pure rendering-layer change in Plant.tsx consuming the phenologyStage/biomass-fraction values already passed to it via PlantGrowthProps.
+    invariant: true
+  - id: T-SPEC-VIEWER-004-NC-NC_SPRIG_VIEWER3_NO_RAYCAST_REGRESSION
+    kind: negative-constraint
+    traces_to: SPEC-VIEWER-004#NC-SPRIG-VIEWER3-NO-RAYCAST-REGRESSION
+    assertion: The new Seedling shape and any crownSize/foliage changes MUST NOT introduce a mesh that intercepts pointer raycasts ahead of the per-cell overlay mesh — follow the existing NO_RAYCAST convention (line 22) used by StressRing, exactly as GardenScene3D.tsx's per-cell overlays and BedEquipment.tsx's equipment meshes already do.
+    invariant: true

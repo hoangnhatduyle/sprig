@@ -1,0 +1,55 @@
+id: SPEC-VIEWER-004
+version: 0.1.0
+kind: domain
+title: Procedural Phenology-Stage Visual Differentiation (Tier A)
+status: draft
+context_and_scope:
+  in_scope:
+    - "A SENESCENT-stage color branch in Plant.tsx's foliageColor() (currently lines 140-151, only DEAD gets a distinct color at line 141): a new SENESCENT_COLOR constant (added near WILT_COLOR/DEAD_COLOR, lines 107-110) blended in when growth.phenologyStage === 'SENESCENT', kept visually distinct from the existing WILT_COLOR/CHLOROSIS_COLOR/DISEASE_COLOR lerp chain so a naturally-aging healthy plant never reads as drought-stressed or diseased."
+    - "A minimal 'seedling' visual for GERMINATING-stage plantings: a new shape function (added alongside UprightBush/Vining/RosetteLeafy/RootCrop, currently lines 172-280) rendering a small stem plus one or two tiny leaf primitives, not the full per-habit crown geometry. Wired in via a phenologyStage === 'GERMINATING' branch in Plant()'s main return (currently lines 324-334), taking precedence over the growthHabit switch so every habit shares one seedling look."
+    - "A small stage-driven fullness multiplier on crownSize (currently computed at line 315): MATURE/FRUITING stages read slightly fuller than VEGETATIVE at the same biomassFraction, so maturity isn't communicated by height alone."
+    - "Manual verification pass: assign a few different-growthHabit species, advance simulated days (via sim-clock-service.ts's existing dev/test lever), and confirm GERMINATING -> VEGETATIVE -> FLOWERING -> SENESCENT are each visually distinguishable in the 3D viewer, in both the left and right bed (cell-node-mapping.ts's GLB split)."
+  out_of_scope:
+    - "Curated per-species 3D models/GLB assets (Tier B/C) — explicitly deferred by Plant.tsx's own header comment ('the always-works baseline tier... before any curated 3D model tier is layered on top later'). This spec stays entirely procedural, zero new art assets."
+    - "New growth-habit archetypes beyond the existing four (UPRIGHT_BUSH, VINING, ROSETTE_LEAFY, ROOT_CROP)."
+    - "Any change to growth-engine-service.ts, daily-step-orchestrator.ts, or catch-up-service.ts, or to any PlantingBiologyState field — this spec consumes phenologyStage/biomass fractions Plant.tsx already receives via PlantGrowthProps, it does not change how they're computed."
+    - "matureHeightCm-accurate real-world scale — HABIT_MAX_HEIGHT (lines 67-74) stays a stylized relative scale, per its own existing comment; not touched by this spec."
+    - "Changes to StressRing, foliageColor's wilt/chlorosis/disease tint logic beyond the new SENESCENT branch, or the droop/rotation system — those stay as-is."
+  external_dependencies: []
+  shared_schemas: []
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-VIEWER3-NO-BIOLOGY-CHANGE
+    message: This spec MUST NOT modify growth-engine-service.ts, daily-step-orchestrator.ts, catch-up-service.ts, or any PlantingBiologyState field/column — it is a pure rendering-layer change in Plant.tsx consuming the phenologyStage/biomass-fraction values already passed to it via PlantGrowthProps.
+    severity: high
+  - id: NC-SPRIG-VIEWER3-STAGE-DISTINCT-FROM-STRESS
+    message: The new SENESCENT color treatment MUST remain visually distinguishable from the existing WILT_COLOR (drought), CHLOROSIS_COLOR (micronutrient deficiency), and DISEASE_COLOR tints in foliageColor() — a healthy plant naturally reaching SENESCENT must not read as though it's suffering a stress condition it doesn't have.
+    severity: medium
+  - id: NC-SPRIG-VIEWER3-NO-RAYCAST-REGRESSION
+    message: The new Seedling shape and any crownSize/foliage changes MUST NOT introduce a mesh that intercepts pointer raycasts ahead of the per-cell overlay mesh — follow the existing NO_RAYCAST convention (line 22) used by StressRing, exactly as GardenScene3D.tsx's per-cell overlays and BedEquipment.tsx's equipment meshes already do.
+    severity: high
+acceptance_criteria:
+  - id: AC-1
+    given: a planting in GERMINATING phenology stage
+    when: rendered in the 3D viewer
+    then: it shows the new minimal seedling shape regardless of its species' growthHabit, visually distinguishable from a full-crown shape at a similar biomassFraction
+    invariant: false
+  - id: AC-2
+    given: a planting whose phenologyStage has advanced to SENESCENT while waterContentIndex and cumulativeStress remain in healthy ranges (no drought/stress present)
+    when: rendered
+    then: its foliage color reads as senescent/aging, not as wilted, chlorotic, or diseased
+    invariant: false
+  - id: AC-3
+    given: two same-species plantings with equal biomassFraction, one MATURE and one VEGETATIVE
+    when: both are rendered
+    then: the MATURE planting reads visually fuller via the crownSize multiplier, not just taller
+    invariant: false
+  - id: AC-4
+    given: the existing e2e suite (e2e/simulation-surfacing.spec.ts and related cell-selection specs)
+    when: run after this spec's changes
+    then: 3D cell selection/raycast behavior shows no regression — clicking a cell still resolves to the cell overlay, never to a decorative plant mesh
+    invariant: true
+depends_on:
+  - SPEC-VIEWER-002
+  - SPEC-GROWTH-002
+constitution_rules: []
