@@ -38,6 +38,7 @@ import { CellPicker } from "./CellPicker";
 import { GardenGrid } from "./GardenGrid";
 import { GardenSummary } from "./GardenSummary";
 import { GardenTopTabs } from "./GardenTopTabs";
+import { LiveImageGallery } from "./LiveImageGallery";
 import { NeedsAttentionBanner } from "./NeedsAttentionBanner";
 import { RainBarrelPanel } from "./RainBarrelPanel";
 import { FOCUS_RING, MIN_TOUCH_TARGET } from "./ui-constants";
@@ -154,7 +155,7 @@ export function GardenView({
   // deliberately stays outside this tab switch and always shows the whole
   // garden, same as it already ignores whether the picker or summary is
   // showing in this same left-column slot.
-  const [leftTab, setLeftTab] = useState<"bedLayout" | "rainBarrels">("bedLayout");
+  const [leftTab, setLeftTab] = useState<"bedLayout" | "rainBarrels" | "liveImages">("bedLayout");
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -449,7 +450,7 @@ export function GardenView({
           disabled={isSubmitting}
           onChanged={refreshAll}
         />
-        <NeedsAttentionBanner beds={beds} />
+        <NeedsAttentionBanner beds={beds} plants={plants} onSelectCell={selectCell} />
     <div
       data-testid="garden-workspace"
       className="flex flex-col gap-8 xl:grid xl:grid-cols-[minmax(0,7fr)_minmax(30rem,13fr)] xl:items-start xl:gap-8 2xl:gap-10"
@@ -460,6 +461,7 @@ export function GardenView({
             [
               { id: "bedLayout", label: "Bed Layout" },
               { id: "rainBarrels", label: "Rain Barrels" },
+              { id: "liveImages", label: "Live Images" },
             ] as const
           ).map(({ id, label }) => (
             <button
@@ -494,7 +496,14 @@ export function GardenView({
         />
         {selectedCell && (
           <div ref={pickerPanelRef} className="scroll-mt-6">
+            {/* Keyed to the cell's identity, not just its position in the
+                tree: without this, switching selected cells reuses the same
+                CellPicker instance, and its internal state that's seeded
+                once from props (overridePlantingId, harvestPlantingId) goes
+                stale — the stage-override form could silently submit the
+                *previous* cell's cellPlantingId. */}
             <CellPicker
+              key={`${selectedCell.bedId}:${selectedCell.column}:${selectedCell.row}`}
               cell={selectedCell}
               plants={plants}
               isOpen={picker.status === "PICKER_OPEN"}
@@ -522,6 +531,9 @@ export function GardenView({
         </div>
         <div id="rainBarrels-panel" role="tabpanel" aria-labelledby="rainBarrels-tab" hidden={leftTab !== "rainBarrels"}>
           <RainBarrelPanel rainBarrels={rainBarrels} disabled={isSubmitting} onChanged={refreshAll} />
+        </div>
+        <div id="liveImages-panel" role="tabpanel" aria-labelledby="liveImages-tab" hidden={leftTab !== "liveImages"}>
+          <LiveImageGallery />
         </div>
         {/* Outside both tabs per user request — an ambient overview
             shouldn't disappear just because you switched to Rain Barrels,

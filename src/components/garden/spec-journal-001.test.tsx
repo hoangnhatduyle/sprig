@@ -149,7 +149,7 @@ describe("JournalPanel", () => {
 
 describe("NeedsAttentionBanner", () => {
   it("renders nothing when no bed has stressed, critical, or infected cells", () => {
-    const { container } = render(<NeedsAttentionBanner beds={BEDS} />);
+    const { container } = render(<NeedsAttentionBanner beds={BEDS} plants={[]} onSelectCell={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -177,7 +177,7 @@ describe("NeedsAttentionBanner", () => {
         },
       ],
     } as unknown as SnapshotBed;
-    render(<NeedsAttentionBanner beds={[stressedBed]} />);
+    render(<NeedsAttentionBanner beds={[stressedBed]} plants={[]} onSelectCell={vi.fn()} />);
     expect(screen.getByText(/Left Bed/)).toBeInTheDocument();
     expect(screen.getByText(/critical/i)).toBeInTheDocument();
   });

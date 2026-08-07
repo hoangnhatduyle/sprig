@@ -262,6 +262,26 @@ function RemoveButton({
   );
 }
 
+// Mirrors stage-override-service.ts's OVERRIDABLE_STAGES (SENESCENT/DEAD
+// aren't reachable via replay, see that file's own comment) — kept local
+// here rather than imported since this is UI option-list concern, the same
+// "local mirror over cross-domain import" precedent stage-override-service.ts
+// itself already establishes for growth-engine-service.ts's stage order.
+const OVERRIDABLE_STAGES = ["GERMINATING", "VEGETATIVE", "FLOWERING", "FRUITING", "MATURE"] as const;
+
+// Seeds the "Set stage" dropdown from what the targeted planting is actually
+// at right now, instead of a hardcoded "Vegetative" — a fixed default meant
+// the dropdown looked plausible regardless of the plant's real stage, making
+// it easy to click "Set stage" while believing you'd chosen something you
+// hadn't. Falls back to the first reachable stage only when the planting
+// has no growth yet or sits in a terminal stage this control can't target.
+function currentOverridableStage(cell: SelectedCell, plantingId: string): (typeof OVERRIDABLE_STAGES)[number] {
+  const stage = cell.plantings?.find((planting) => planting.id === plantingId)?.growth?.phenologyStage;
+  return stage && (OVERRIDABLE_STAGES as readonly string[]).includes(stage)
+    ? (stage as (typeof OVERRIDABLE_STAGES)[number])
+    : OVERRIDABLE_STAGES[0];
+}
+
 const LIFECYCLE_STUB_REASON_ID = "plant-picker-lifecycle-stub-reason";
 
 function HarvestedActions({ onCancel }: { onCancel: () => void }) {
@@ -442,7 +462,9 @@ export function CellPicker({
   const primaryCompanionEffects = cell.plantings?.[0]?.companionEffects ?? [];
   const [harvestPlantingId, setHarvestPlantingId] = useState(cell.plantings?.[0]?.id ?? "");
   const [overridePlantingId, setOverridePlantingId] = useState(cell.plantings?.[0]?.id ?? "");
-  const [overrideTargetStage, setOverrideTargetStage] = useState<string>("VEGETATIVE");
+  const [overrideTargetStage, setOverrideTargetStage] = useState<string>(() =>
+    currentOverridableStage(cell, cell.plantings?.[0]?.id ?? ""),
+  );
   const [harvestAmount, setHarvestAmount] = useState("1");
   const [harvestUnit, setHarvestUnit] = useState("item");
   const [harvestNotes, setHarvestNotes] = useState("");
@@ -613,7 +635,16 @@ export function CellPicker({
                 Plant
                 <select
                   value={overridePlantingId}
-                  onChange={(event) => setOverridePlantingId(event.target.value)}
+                  onChange={(event) => {
+                    const nextPlantingId = event.target.value;
+                    setOverridePlantingId(nextPlantingId);
+                    // Re-seed the target stage to whichever planting is now
+                    // selected — otherwise switching between companions in
+                    // this dropdown leaves the previous planting's stage
+                    // sitting in "Set stage", the same stale-default trap
+                    // this whole change is meant to close.
+                    setOverrideTargetStage(currentOverridableStage(cell, nextPlantingId));
+                  }}
                   className="mt-1 min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3"
                   style={{ borderColor: "var(--color-border)" }}
                 >
@@ -632,7 +663,7 @@ export function CellPicker({
                   className="mt-1 min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3"
                   style={{ borderColor: "var(--color-border)" }}
                 >
-                  {(["GERMINATING", "VEGETATIVE", "FLOWERING", "FRUITING", "MATURE"] as const).map((stage) => (
+                  {OVERRIDABLE_STAGES.map((stage) => (
                     <option key={stage} value={stage}>
                       {PHENOLOGY_LABEL[stage] ?? stage}
                     </option>

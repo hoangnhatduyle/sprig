@@ -6,20 +6,42 @@
 // infected cell is never more than a glance away regardless of what else is
 // selected. Reuses summarizeBed (bed-summary.ts) rather than recomputing
 // the same per-bed tallies a second way.
+//
+// Each flagged cell is its own clickable line (not just a per-bed count) so
+// "1 infected cell" is something you can jump straight to, reusing
+// GardenView's existing select-and-scroll pipeline (selectCell ->
+// pickerPanelRef.scrollIntoView) rather than inventing a second one.
 
 import { AlertTriangle } from "lucide-react";
+import type { AttentionCell } from "./bed-summary";
 import { summarizeBed } from "./bed-summary";
-import type { SnapshotBed } from "./types";
+import { plantName } from "./plant-lookup";
+import { FOCUS_RING } from "./ui-constants";
+import type { PlantOption, SelectedCell, SnapshotBed } from "./types";
 
 export interface NeedsAttentionBannerProps {
   beds: SnapshotBed[];
+  plants: PlantOption[];
+  onSelectCell: (target: SelectedCell) => void;
   bare?: boolean;
 }
 
-export function NeedsAttentionBanner({ beds, bare = false }: NeedsAttentionBannerProps) {
+const REASON_LABEL: Record<AttentionCell["reasons"][number], string> = {
+  critical: "critically stressed",
+  stressed: "stressed",
+  infected: "infected",
+};
+
+function attentionCellLabel(attention: AttentionCell, plants: PlantOption[]): string {
+  const plantLabel = attention.cell.plantIds.length > 0 ? plantName(plants, attention.cell.plantIds[0]) : "Empty cell";
+  const reasons = attention.reasons.map((reason) => REASON_LABEL[reason]).join(", ");
+  return `Column ${attention.cell.column}, row ${attention.cell.row} · ${plantLabel} — ${reasons}`;
+}
+
+export function NeedsAttentionBanner({ beds, plants, onSelectCell, bare = false }: NeedsAttentionBannerProps) {
   const rows = beds
     .map((bed) => ({ bed, stats: summarizeBed(bed) }))
-    .filter(({ stats }) => stats.stressedCells + stats.criticalCells + stats.infectedCells > 0);
+    .filter(({ stats }) => stats.attentionCells.length > 0);
 
   if (rows.length === 0) {
     return null;
@@ -41,25 +63,41 @@ export function NeedsAttentionBanner({ beds, bare = false }: NeedsAttentionBanne
         <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0" />
         Needs attention
       </p>
-      <ul className="flex flex-col gap-1">
-        {rows.map(({ bed, stats }) => {
-          const needsAttention = stats.stressedCells + stats.criticalCells;
-          const parts: string[] = [];
-          if (needsAttention > 0) {
-            parts.push(
-              `${needsAttention} cell${needsAttention === 1 ? "" : "s"} stressed${stats.criticalCells > 0 ? ` (${stats.criticalCells} critical)` : ""}`,
-            );
-          }
-          if (stats.infectedCells > 0) {
-            parts.push(`${stats.infectedCells} infected cell${stats.infectedCells === 1 ? "" : "s"}`);
-          }
-          return (
-            <li key={bed.id} className="text-sm" style={{ color: "var(--color-warning-text)" }}>
-              <strong>{bed.name}:</strong> {parts.join(" · ")}
-            </li>
-          );
-        })}
-      </ul>
+      <div className="flex flex-col gap-2.5">
+        {rows.map(({ bed, stats }) => (
+          <div key={bed.id}>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-warning-text)" }}>
+              {bed.name}
+            </p>
+            <ul className="flex flex-col gap-1">
+              {stats.attentionCells.map((attention) => (
+                <li key={`${attention.cell.column}:${attention.cell.row}`}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onSelectCell({
+                        bedId: bed.id,
+                        bedName: bed.name,
+                        column: attention.cell.column,
+                        row: attention.cell.row,
+                        status: attention.cell.status,
+                        plantIds: attention.cell.plantIds,
+                        plantings: attention.cell.plantings,
+                        environment: attention.cell.environment,
+                        soilProfile: bed.soilProfile,
+                      })
+                    }
+                    className={`rounded text-left text-sm underline decoration-dotted underline-offset-2 hover:decoration-solid ${FOCUS_RING}`}
+                    style={{ color: "var(--color-warning-text)" }}
+                  >
+                    {attentionCellLabel(attention, plants)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </Wrapper>
   );
 }

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CellPicker } from "./CellPicker";
 import { GardenGrid } from "./GardenGrid";
@@ -237,6 +238,74 @@ describe("CellPicker — weeding action", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: /apply weeding/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("CellPicker — stale planting selection across cell switches", () => {
+  // The direct assertion for the reported bug: GardenView renders CellPicker
+  // without a key tied to the selected cell's identity, so switching cells
+  // reused the same component instance and its overridePlantingId state
+  // (seeded once via useState from the *first* cell's plantings) never
+  // resynced. Setting a stage after switching cells silently submitted the
+  // previous cell's cellPlantingId. This harness reproduces GardenView's own
+  // fix — a key derived from bedId/column/row — and asserts the submitted
+  // id tracks the currently selected cell, not the one selected on mount.
+  // Cell B's planting is seeded at FLOWERING (not cell A's VEGETATIVE) so
+  // this also covers the "Set stage" default now tracking each cell's own
+  // current stage instead of a hardcoded default.
+  it("submits the newly selected cell's plantingId and its own current stage after switching cells", () => {
+    const overridePlantingStage = vi.fn().mockResolvedValue({ ok: true });
+    const cellA = baseCell();
+    const cellB = baseCell({
+      column: 2,
+      plantIds: ["plant-pepper"],
+      plantings: [
+        {
+          id: "planting-b",
+          plantId: "plant-pepper",
+          harvestCount: 0,
+          infections: [],
+          companionEffects: [],
+          growth: {
+            ...cellA.plantings![0].growth!,
+            phenologyStage: "FLOWERING",
+          },
+        },
+      ],
+    });
+
+    function Harness() {
+      const [cell, setCell] = useState(cellA);
+      return (
+        <>
+          <button type="button" onClick={() => setCell(cellB)}>
+            Select cell B
+          </button>
+          <CellPicker
+            key={`${cell.bedId}:${cell.column}:${cell.row}`}
+            cell={cell}
+            plants={[
+              { id: "plant-tomato", commonName: "Tomato" },
+              { id: "plant-pepper", commonName: "Hot Pepper" },
+            ]}
+            isOpen={false}
+            isSubmitting={false}
+            onOpen={vi.fn()}
+            onAssign={vi.fn()}
+            onAddCompanion={vi.fn()}
+            onCancel={vi.fn()}
+            onDeselect={vi.fn()}
+            error={null}
+            overridePlantingStage={overridePlantingStage}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Select cell B" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set stage" }));
+    expect(overridePlantingStage).toHaveBeenCalledWith({ cellPlantingId: "planting-b", targetStage: "FLOWERING" });
   });
 });
 

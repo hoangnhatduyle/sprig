@@ -117,13 +117,13 @@ function SeedSlot({
             className="object-cover"
           />
         ) : (
-          <span className="text-base" aria-hidden="true">
+          <span className="text-2xl" aria-hidden="true">
             🌱
           </span>
         )}
         {plant.seedQuantity > 0 && (
           <span
-            className="absolute bottom-0 right-0 rounded-tl px-0.5 text-[8px] font-bold leading-tight text-white"
+            className="absolute bottom-0 right-0 rounded-tl px-1 py-0.5 text-[10px] font-bold leading-tight text-white"
             style={{ background: "rgba(0,0,0,0.72)" }}
           >
             {plant.seedQuantity}
@@ -851,29 +851,31 @@ export function InventoryPanel({ inventory, disabled, onChanged, bare = false }:
       )}
       {tab === "seeds" ? (
         seeds.length ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(4rem,4rem))] gap-1.5">
-            {seeds.map((plant) => (
-              <SeedSlot
-                key={plant.id}
-                plant={plant}
-                disabled={disabled || busy}
-                isOpen={openSlotId === plant.id}
-                onToggle={() => setOpenSlotId((current) => (current === plant.id ? null : plant.id))}
-                onClose={() => setOpenSlotId((current) => (current === plant.id ? null : current))}
-                onEdit={() => setEditing(plant)}
-                onDelete={() => {
-                  if (window.confirm(`Delete ${plant.commonName}? Historical plants will be archived.`)) {
-                    void mutate(() => deleteInventoryPlantAction(plant.id), "Plant removed.");
-                  }
-                }}
-                onImage={(file) => {
-                  const formData = new FormData();
-                  formData.set("plantId", plant.id);
-                  formData.set("image", file);
-                  void mutate(() => uploadPlantImageAction(formData), "Image updated.");
-                }}
-              />
-            ))}
+          <div className="max-h-[28rem] overflow-y-auto pr-1">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,6rem))] gap-2.5">
+              {seeds.map((plant) => (
+                <SeedSlot
+                  key={plant.id}
+                  plant={plant}
+                  disabled={disabled || busy}
+                  isOpen={openSlotId === plant.id}
+                  onToggle={() => setOpenSlotId((current) => (current === plant.id ? null : plant.id))}
+                  onClose={() => setOpenSlotId((current) => (current === plant.id ? null : current))}
+                  onEdit={() => setEditing(plant)}
+                  onDelete={() => {
+                    if (window.confirm(`Delete ${plant.commonName}? Historical plants will be archived.`)) {
+                      void mutate(() => deleteInventoryPlantAction(plant.id), "Plant removed.");
+                    }
+                  }}
+                  onImage={(file) => {
+                    const formData = new FormData();
+                    formData.set("plantId", plant.id);
+                    formData.set("image", file);
+                    void mutate(() => uploadPlantImageAction(formData), "Image updated.");
+                  }}
+                />
+              ))}
+            </div>
           </div>
         ) : (
           <p className="py-6 text-sm" style={{ color: "var(--color-text-muted)" }}>No seeds match this search.</p>

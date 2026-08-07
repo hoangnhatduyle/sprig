@@ -8,6 +8,15 @@ import { healthBand } from "./stress-display";
 import { MIN_DISPLAY_POPULATION, MIN_DISPLAY_SEVERITY } from "./pest-display";
 import type { SnapshotBed, SnapshotCell } from "./types";
 
+// One flagged cell plus why it was flagged — lets a caller like
+// NeedsAttentionBanner link straight to the specific cell instead of only
+// reporting a per-bed count (SPEC-SURFACE banner previously had no way to
+// say *which* cell needed attention).
+export interface AttentionCell {
+  cell: SnapshotCell;
+  reasons: ("stressed" | "critical" | "infected")[];
+}
+
 export interface BedStats {
   bed: SnapshotBed;
   filledCells: number;
@@ -16,6 +25,7 @@ export interface BedStats {
   stressedCells: number;
   criticalCells: number;
   infectedCells: number;
+  attentionCells: AttentionCell[];
   dominantPestKey: string | null;
   dominantPredatorKey: string | null;
 }
@@ -31,6 +41,7 @@ export function summarizeBed(bed: SnapshotBed): BedStats {
   let stressedCells = 0;
   let criticalCells = 0;
   let infectedCells = 0;
+  const attentionCells: AttentionCell[] = [];
 
   for (const cell of bed.cells) {
     statusCounts[cell.status] = (statusCounts[cell.status] ?? 0) + 1;
@@ -40,14 +51,24 @@ export function summarizeBed(bed: SnapshotBed): BedStats {
         plantOccurrences.set(id, (plantOccurrences.get(id) ?? 0) + 1);
       }
     }
+    const reasons: AttentionCell["reasons"] = [];
     const growth = cell.plantings[0]?.growth ?? null;
     if (growth) {
       const band = healthBand(growth);
-      if (band === "critical") criticalCells += 1;
-      else if (band === "stressed") stressedCells += 1;
+      if (band === "critical") {
+        criticalCells += 1;
+        reasons.push("critical");
+      } else if (band === "stressed") {
+        stressedCells += 1;
+        reasons.push("stressed");
+      }
     }
     if (cell.plantings.some((planting) => planting.infections.some((infection) => infection.severity >= MIN_DISPLAY_SEVERITY))) {
       infectedCells += 1;
+      reasons.push("infected");
+    }
+    if (reasons.length > 0) {
+      attentionCells.push({ cell, reasons });
     }
   }
 
@@ -70,6 +91,7 @@ export function summarizeBed(bed: SnapshotBed): BedStats {
     stressedCells,
     criticalCells,
     infectedCells,
+    attentionCells,
     dominantPestKey: dominantPest?.pestKey ?? null,
     dominantPredatorKey: dominantPredator?.predatorKey ?? null,
   };
