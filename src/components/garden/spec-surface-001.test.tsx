@@ -121,6 +121,7 @@ describe("CellPicker — stress dial label regression", () => {
         error={null}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Growth" }));
     expect(screen.getByText(/pest & disease pressure/i)).toBeInTheDocument();
   });
 });
@@ -161,6 +162,7 @@ describe("CellPicker — soil card calcium regression", () => {
         applyMulch={vi.fn()}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Care" }));
     expect(screen.getByText(/Calcium \(Ca\): 12%/)).toBeInTheDocument();
   });
 });
@@ -218,6 +220,7 @@ describe("CellPicker — weeding action", () => {
         applyWeeding={applyWeeding}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Care" }));
     fireEvent.click(screen.getByRole("button", { name: /apply weeding/i }));
     expect(applyWeeding).toHaveBeenCalledWith({ bedId: "bed-1", column: 1, row: 1 });
   });
@@ -304,6 +307,7 @@ describe("CellPicker — stale planting selection across cell switches", () => {
 
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Select cell B" }));
+    fireEvent.click(screen.getByRole("button", { name: "Growth" }));
     fireEvent.click(screen.getByRole("button", { name: "Set stage" }));
     expect(overridePlantingStage).toHaveBeenCalledWith({ cellPlantingId: "planting-b", targetStage: "FLOWERING" });
   });

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { summarizeBed } from "./bed-summary";
 import { EQUIPMENT_KIND_ICON, EQUIPMENT_KIND_LABEL } from "./equipment-display";
 import { plantName } from "./plant-lookup";
@@ -10,12 +12,58 @@ import {
   PREDATOR_LABEL,
   pestPressureBand,
 } from "./pest-display";
+import { FOCUS_RING } from "./ui-constants";
 import type { PlantOption, SnapshotBed, SnapshotCell } from "./types";
 
 type GardenSummaryProps = {
   beds: SnapshotBed[];
   plants: PlantOption[];
 };
+
+// Beyond this many varieties, the tag list wraps into unreadable clutter —
+// collapse the tail behind a "+N more" toggle instead of dumping all of it
+// inline (a 28-variety bed was the reported case).
+const COLLAPSED_PLANT_COUNT = 4;
+
+function PlantVarietyList({ plantCounts, plants }: { plantCounts: { plantId: string; count: number }[]; plants: PlantOption[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (plantCounts.length === 0) {
+    return null;
+  }
+  const hiddenCount = plantCounts.length - COLLAPSED_PLANT_COUNT;
+  const visible = expanded || hiddenCount <= 0 ? plantCounts : plantCounts.slice(0, COLLAPSED_PLANT_COUNT);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ul className="flex flex-wrap gap-1.5">
+        {visible.map(({ plantId, count }) => (
+          <li
+            key={plantId}
+            className="rounded-full border px-2 py-0.5 text-xs"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+          >
+            {plantName(plants, plantId)} × {count}
+          </li>
+        ))}
+      </ul>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          className={`inline-flex w-fit items-center gap-1 rounded text-xs font-medium underline decoration-dotted underline-offset-2 ${FOCUS_RING}`}
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          {expanded ? "Show fewer" : `+${hiddenCount} more`}
+          <ChevronDown
+            aria-hidden="true"
+            className="h-3 w-3 shrink-0 transition-transform"
+            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
+          />
+        </button>
+      )}
+    </div>
+  );
+}
 
 function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption[] }) {
   const {
@@ -126,19 +174,7 @@ function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption
         </p>
       )}
 
-      {plantCounts.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5">
-          {plantCounts.map(({ plantId, count }) => (
-            <li
-              key={plantId}
-              className="rounded-full border px-2 py-0.5 text-xs"
-              style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
-            >
-              {plantName(plants, plantId)} × {count}
-            </li>
-          ))}
-        </ul>
-      )}
+      <PlantVarietyList plantCounts={plantCounts} plants={plants} />
     </div>
   );
 }

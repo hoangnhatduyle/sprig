@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CellPicker } from "./CellPicker";
 import type { SelectedCell } from "./types";
@@ -57,7 +57,7 @@ function baseCell(overrides: Partial<SelectedCell> = {}): SelectedCell {
 }
 
 function renderCellPicker(cell: SelectedCell) {
-  return render(
+  const result = render(
     <CellPicker
       cell={cell}
       plants={[{ id: "plant-tomato", commonName: "Tomato" }]}
@@ -71,6 +71,10 @@ function renderCellPicker(cell: SelectedCell) {
       error={null}
     />,
   );
+  // GrowthReadout lives inside the collapsible "Growth" section — open it so
+  // these assertions can see its content.
+  fireEvent.click(screen.getByRole("button", { name: "Growth" }));
+  return result;
 }
 
 describe("SPEC-GROWTH-004 — GrowthReadout progress + height estimate", () => {

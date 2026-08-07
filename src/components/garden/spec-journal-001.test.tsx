@@ -233,6 +233,7 @@ describe("CellPicker — cell note entry point", () => {
         createJournalNote={createJournalNote}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add a note about this cell" }));
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Aphids spotted here." } });
     fireEvent.click(screen.getByRole("button", { name: /save note/i }));
 

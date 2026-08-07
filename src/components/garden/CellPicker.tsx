@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { ActionResult, CellTarget } from "@/app/actions";
 import { plantName } from "./plant-lookup";
 import { PHENOLOGY_LABEL, STATUS_STYLES, STATUS_WORD } from "./status-display";
@@ -262,6 +263,42 @@ function RemoveButton({
   );
 }
 
+type CellSection = "growth" | "care" | "note";
+
+// One section body visible at a time — Growth, Care, and the note form each
+// carry enough fields that showing all three simultaneously buried the
+// panel in detail. Clicking a header opens its section and collapses
+// whichever was open; clicking the open header again collapses it.
+function AccordionHeader({
+  id,
+  title,
+  isOpen,
+  onToggle,
+}: {
+  id: string;
+  title: string;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      id={`${id}-header`}
+      aria-expanded={isOpen}
+      aria-controls={`${id}-panel`}
+      onClick={onToggle}
+      className={`flex w-full items-center justify-between gap-2 text-left ${FOCUS_RING}`}
+    >
+      <h3 className="font-semibold">{title}</h3>
+      <ChevronDown
+        aria-hidden="true"
+        className="h-4 w-4 shrink-0 transition-transform"
+        style={{ transform: isOpen ? "rotate(180deg)" : undefined, color: "var(--color-text-muted)" }}
+      />
+    </button>
+  );
+}
+
 // Mirrors stage-override-service.ts's OVERRIDABLE_STAGES (SENESCENT/DEAD
 // aren't reachable via replay, see that file's own comment) — kept local
 // here rather than imported since this is UI option-list concern, the same
@@ -471,6 +508,11 @@ export function CellPicker({
   const [cellNoteBody, setCellNoteBody] = useState("");
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<CellSection | null>(null);
+
+  function toggleSection(section: CellSection): void {
+    setOpenSection((current) => (current === section ? null : section));
+  }
 
   const [mulchDepthMm, setMulchDepthMm] = useState("30");
   const [compostAmount, setCompostAmount] = useState("0.5");
@@ -622,8 +664,15 @@ export function CellPicker({
       </dl>
 
       {cell.plantIds.length > 0 && !isHarvested && (
-        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }} aria-labelledby="lifecycle-heading">
-          <h3 id="lifecycle-heading" className="font-semibold">Growth</h3>
+        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+          <AccordionHeader
+            id="lifecycle"
+            title="Growth"
+            isOpen={openSection === "growth"}
+            onToggle={() => toggleSection("growth")}
+          />
+          {openSection === "growth" && (
+          <div id="lifecycle-panel" role="region" aria-labelledby="lifecycle-header">
           {/* Germination and growth now advance automatically from simulated
               time + weather (src/domain/growth) rather than a manual click —
               this panel reports what the engine is doing instead of driving
@@ -722,12 +771,21 @@ export function CellPicker({
             </form>
           ) : null}
           {lifecycleMessage && <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lifecycleMessage}</p>}
+          </div>
+          )}
         </section>
       )}
 
       {cell.plantIds.length > 0 && !isHarvested && (applyMulch || applyCompost || applyFertilizer || applyFungicide || applyWeeding) && (
-        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }} aria-labelledby="care-heading">
-          <h3 id="care-heading" className="font-semibold">Care</h3>
+        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+          <AccordionHeader
+            id="care"
+            title="Care"
+            isOpen={openSection === "care"}
+            onToggle={() => toggleSection("care")}
+          />
+          {openSection === "care" && (
+          <div id="care-panel" role="region" aria-labelledby="care-header">
           <SoilCard environment={cell.environment ?? null} soilProfile={cell.soilProfile} />
           <InfectionReadout plantings={cell.plantings} />
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -880,12 +938,21 @@ export function CellPicker({
             )}
           </div>
           {lifecycleMessage && <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lifecycleMessage}</p>}
+          </div>
+          )}
         </section>
       )}
 
       {createJournalNote && (
-        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }} aria-labelledby="cell-note-heading">
-          <h3 id="cell-note-heading" className="font-semibold">Add a note about this cell</h3>
+        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+          <AccordionHeader
+            id="cell-note"
+            title="Add a note about this cell"
+            isOpen={openSection === "note"}
+            onToggle={() => toggleSection("note")}
+          />
+          {openSection === "note" && (
+          <div id="cell-note-panel" role="region" aria-labelledby="cell-note-header">
           <form
             className="mt-2 flex flex-col gap-2"
             onSubmit={(event) => {
@@ -925,6 +992,8 @@ export function CellPicker({
             </button>
           </form>
           {lifecycleMessage && <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lifecycleMessage}</p>}
+          </div>
+          )}
         </section>
       )}
 
