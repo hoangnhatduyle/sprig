@@ -117,14 +117,14 @@ export function LiveImageGallery() {
             onClick={() => setEnlargedIndex(index)}
             aria-label={`Enlarge ${image.alt}`}
             style={{ borderColor: "var(--color-border)", scrollSnapAlign: "start" }}
-            className={`relative h-40 w-52 shrink-0 overflow-hidden rounded-lg border-2 transition-transform hover:-translate-y-0.5 hover:shadow-md ${FOCUS_RING}`}
+            className={`relative aspect-[4/3] h-64 shrink-0 overflow-hidden rounded-lg border-2 transition-transform hover:-translate-y-0.5 hover:shadow-md sm:h-80 lg:h-96 ${FOCUS_RING}`}
           >
             <Image
               src={image.src}
               alt={image.alt}
               fill
               className="object-cover"
-              sizes="13rem"
+              sizes="(min-width: 1024px) 32rem, (min-width: 640px) 27rem, 21rem"
             />
           </button>
         ))}

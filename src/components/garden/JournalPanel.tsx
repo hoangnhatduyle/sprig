@@ -296,7 +296,7 @@ export function JournalPanel({
           ) : entries.length === 0 ? (
             <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Nothing recorded yet.</p>
           ) : (
-            <ul>
+            <ul className="max-h-[32rem] overflow-y-auto pr-1">
               {entries.map((entry) => (
                 <JournalEntryRow key={`${entry.kind}:${entry.id}`} entry={entry} />
               ))}
