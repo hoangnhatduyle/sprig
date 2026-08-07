@@ -24,8 +24,8 @@ const LIVE_IMAGES: readonly LiveImage[] = [
   { src: "/garden-live-images/garden-live-04.jpg", alt: "Garden reference photo 4" },
   { src: "/garden-live-images/garden-live-05.jpg", alt: "Garden reference photo 5" },
   { src: "/garden-live-images/garden-live-06.jpg", alt: "Garden reference photo 6" },
-  { src: "/garden-live-images/rain-barrel-01.png", alt: "Rain barrel reference photo 1" },
-  { src: "/garden-live-images/rain-barrel-02.png", alt: "Rain barrel reference photo 2" },
+  { src: "/garden-live-images/rain-barrel-01.jpg", alt: "Rain barrel reference photo 1" },
+  { src: "/garden-live-images/rain-barrel-02.jpg", alt: "Rain barrel reference photo 2" },
 ];
 
 function EnlargedImageDialog({
