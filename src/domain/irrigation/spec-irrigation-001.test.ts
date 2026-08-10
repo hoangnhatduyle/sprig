@@ -227,15 +227,54 @@ describe("SPEC-IRRIGATION-001", () => {
     expect(await maybeTriggerDailyCycle(prisma, system.id, pastActualDuration)).toBe("ended");
   });
 
-  it("a malformed dailyStartTime throws instead of silently never triggering", async () => {
+  it("a malformed dailyStartTimes entry throws instead of silently never triggering", async () => {
     const bed = await seedBed(prisma, { name: "Bed 1", compassPosition: "SOUTH" });
     const system = await prisma.irrigationSystem.create({
-      data: { dailyStartTime: "8", beds: { connect: [{ id: bed.id }] } },
+      data: { dailyStartTimes: ["8"], beds: { connect: [{ id: bed.id }] } },
     });
 
     const eightAM = new Date();
     eightAM.setHours(8, 0, 0, 0);
     await expect(maybeTriggerDailyCycle(prisma, system.id, eightAM)).rejects.toThrow();
+  });
+
+  it("a system with an empty dailyStartTimes array throws instead of silently never triggering", async () => {
+    const bed = await seedBed(prisma, { name: "Bed 1", compassPosition: "SOUTH" });
+    const system = await prisma.irrigationSystem.create({
+      data: { dailyStartTimes: [], beds: { connect: [{ id: bed.id }] } },
+    });
+
+    const eightAM = new Date();
+    eightAM.setHours(8, 0, 0, 0);
+    await expect(maybeTriggerDailyCycle(prisma, system.id, eightAM)).rejects.toThrow();
+  });
+
+  it("a system with two daily windows runs both independently on the same day", async () => {
+    const bed = await seedBed(prisma, { name: "Bed 1", compassPosition: "SOUTH" });
+    const system = await prisma.irrigationSystem.create({
+      data: { dailyStartTimes: ["08:00", "17:00"], beds: { connect: [{ id: bed.id }] } },
+    });
+
+    const eightAM = new Date();
+    eightAM.setHours(8, 0, 0, 0);
+    expect(await maybeTriggerDailyCycle(prisma, system.id, eightAM)).toBe("started");
+
+    // End the morning cycle before checking the evening window.
+    const eightTenAM = new Date(eightAM.getTime() + 11 * 60 * 1000);
+    expect(await maybeTriggerDailyCycle(prisma, system.id, eightTenAM)).toBe("ended");
+
+    // Between windows: the morning cycle already ran, the evening window
+    // hasn't opened yet — nothing should fire.
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    expect(await maybeTriggerDailyCycle(prisma, system.id, noon)).toBe("noop");
+
+    const fivePM = new Date();
+    fivePM.setHours(17, 0, 0, 0);
+    expect(await maybeTriggerDailyCycle(prisma, system.id, fivePM)).toBe("started");
+
+    const runsToday = await prisma.irrigationRun.findMany({ where: { systemId: system.id } });
+    expect(runsToday).toHaveLength(2);
   });
 
   it("addWater rejects a non-finite amount instead of writing an Infinity-valued journal row", async () => {

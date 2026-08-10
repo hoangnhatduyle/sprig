@@ -39,6 +39,23 @@ export function estimateReferenceEt0Mm(meanTempC: number): number {
   return Math.max(0, meanTempC - 5) * 0.15;
 }
 
+// A typical garden drip/soaker grid (e.g. a raised-bed drip irrigation kit)
+// delivers on the rough order of half a millimeter of water per minute of
+// runtime across the bed it covers — a tunable estimate, not a measured
+// flow rate for any specific hardware. Adjust once real plant response to
+// the actual installed system is observed; a 10-minute cycle at this rate
+// delivers 6mm, comparable to a modest rain event.
+export const DRIP_DELIVERY_MM_PER_MINUTE = 0.6;
+
+// One IrrigationRun's water delivery, in the same mm units the water bucket
+// already uses for rain — durationMinutes comes from the IrrigationSystem
+// that produced the run, not the run's own (possibly still-open) actual
+// elapsed time, so a cycle counts its full nominal delivery once it's
+// recorded regardless of exactly when it's read.
+export function irrigationDeliveryMm(durationMinutes: number): number {
+  return Math.max(0, durationMinutes) * DRIP_DELIVERY_MM_PER_MINUTE;
+}
+
 // Display-only recompute of "how much water is this cell losing today,"
 // mirroring stepWaterBucket's etDemandMm = et0 * cropCoefficient * mulchFactor
 // (cropCoefficient fixed at 1, matching the real simulation's current

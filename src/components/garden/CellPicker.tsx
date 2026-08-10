@@ -263,22 +263,26 @@ function RemoveButton({
   );
 }
 
-type CellSection = "growth" | "care" | "note";
-
-// One section body visible at a time — Growth, Care, and the note form each
-// carry enough fields that showing all three simultaneously buried the
-// panel in detail. Clicking a header opens its section and collapses
-// whichever was open; clicking the open header again collapses it.
+// Growth and Note are the sections users actually look at/use on nearly
+// every visit, so both default open and collapse independently (no more
+// shared "only one open" state — a prior version made every section closed
+// by default and mutually exclusive, which just traded "too much detail"
+// for "too many clicks"). Care is demoted to a muted "Advanced care"
+// disclosure that starts closed — still fully functional, just no longer
+// part of the primary flow, per user feedback that it isn't pulling its
+// weight yet but isn't ready to be deleted either.
 function AccordionHeader({
   id,
   title,
   isOpen,
   onToggle,
+  muted = false,
 }: {
   id: string;
   title: string;
   isOpen: boolean;
   onToggle: () => void;
+  muted?: boolean;
 }) {
   return (
     <button
@@ -289,10 +293,12 @@ function AccordionHeader({
       onClick={onToggle}
       className={`flex w-full items-center justify-between gap-2 text-left ${FOCUS_RING}`}
     >
-      <h3 className="font-semibold">{title}</h3>
+      <h3 className={muted ? "text-sm font-medium" : "font-semibold"} style={muted ? { color: "var(--color-text-muted)" } : undefined}>
+        {title}
+      </h3>
       <ChevronDown
         aria-hidden="true"
-        className="h-4 w-4 shrink-0 transition-transform"
+        className={muted ? "h-3.5 w-3.5 shrink-0 transition-transform" : "h-4 w-4 shrink-0 transition-transform"}
         style={{ transform: isOpen ? "rotate(180deg)" : undefined, color: "var(--color-text-muted)" }}
       />
     </button>
@@ -508,11 +514,9 @@ export function CellPicker({
   const [cellNoteBody, setCellNoteBody] = useState("");
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [lifecycleMessage, setLifecycleMessage] = useState<string | null>(null);
-  const [openSection, setOpenSection] = useState<CellSection | null>(null);
-
-  function toggleSection(section: CellSection): void {
-    setOpenSection((current) => (current === section ? null : section));
-  }
+  const [growthOpen, setGrowthOpen] = useState(true);
+  const [noteOpen, setNoteOpen] = useState(true);
+  const [careOpen, setCareOpen] = useState(false);
 
   const [mulchDepthMm, setMulchDepthMm] = useState("30");
   const [compostAmount, setCompostAmount] = useState("0.5");
@@ -668,10 +672,10 @@ export function CellPicker({
           <AccordionHeader
             id="lifecycle"
             title="Growth"
-            isOpen={openSection === "growth"}
-            onToggle={() => toggleSection("growth")}
+            isOpen={growthOpen}
+            onToggle={() => setGrowthOpen((open) => !open)}
           />
-          {openSection === "growth" && (
+          {growthOpen && (
           <div id="lifecycle-panel" role="region" aria-labelledby="lifecycle-header">
           {/* Germination and growth now advance automatically from simulated
               time + weather (src/domain/growth) rather than a manual click —
@@ -776,15 +780,70 @@ export function CellPicker({
         </section>
       )}
 
+      {createJournalNote && (
+        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+          <AccordionHeader
+            id="cell-note"
+            title="Add a note about this cell"
+            isOpen={noteOpen}
+            onToggle={() => setNoteOpen((open) => !open)}
+          />
+          {noteOpen && (
+          <div id="cell-note-panel" role="region" aria-labelledby="cell-note-header">
+          <form
+            className="mt-2 flex flex-col gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const formData = new FormData();
+              formData.set("body", cellNoteBody);
+              formData.set("bedId", cell.bedId);
+              formData.set("column", String(cell.column));
+              formData.set("row", String(cell.row));
+              void runLifecycle(
+                () =>
+                  createJournalNote(formData).then((result) => {
+                    if (result.ok) setCellNoteBody("");
+                    return result;
+                  }),
+                "Note added.",
+              );
+            }}
+          >
+            <label className="text-sm" htmlFor="cell-note-body">Note</label>
+            <textarea
+              id="cell-note-body"
+              value={cellNoteBody}
+              onChange={(event) => setCellNoteBody(event.target.value)}
+              rows={2}
+              placeholder="Aphids showed up here today…"
+              className="min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3 py-2"
+              style={{ borderColor: "var(--color-border)" }}
+            />
+            <button
+              type="submit"
+              disabled={lifecycleBusy || !cellNoteBody.trim()}
+              className={`self-start rounded-md border px-3 ${MIN_TOUCH_TARGET}`}
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              Save note
+            </button>
+          </form>
+          {lifecycleMessage && <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lifecycleMessage}</p>}
+          </div>
+          )}
+        </section>
+      )}
+
       {cell.plantIds.length > 0 && !isHarvested && (applyMulch || applyCompost || applyFertilizer || applyFungicide || applyWeeding) && (
         <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
           <AccordionHeader
             id="care"
-            title="Care"
-            isOpen={openSection === "care"}
-            onToggle={() => toggleSection("care")}
+            title="Advanced care"
+            isOpen={careOpen}
+            onToggle={() => setCareOpen((open) => !open)}
+            muted
           />
-          {openSection === "care" && (
+          {careOpen && (
           <div id="care-panel" role="region" aria-labelledby="care-header">
           <SoilCard environment={cell.environment ?? null} soilProfile={cell.soilProfile} />
           <InfectionReadout plantings={cell.plantings} />
@@ -937,60 +996,6 @@ export function CellPicker({
               </div>
             )}
           </div>
-          {lifecycleMessage && <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lifecycleMessage}</p>}
-          </div>
-          )}
-        </section>
-      )}
-
-      {createJournalNote && (
-        <section className="mb-5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
-          <AccordionHeader
-            id="cell-note"
-            title="Add a note about this cell"
-            isOpen={openSection === "note"}
-            onToggle={() => toggleSection("note")}
-          />
-          {openSection === "note" && (
-          <div id="cell-note-panel" role="region" aria-labelledby="cell-note-header">
-          <form
-            className="mt-2 flex flex-col gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const formData = new FormData();
-              formData.set("body", cellNoteBody);
-              formData.set("bedId", cell.bedId);
-              formData.set("column", String(cell.column));
-              formData.set("row", String(cell.row));
-              void runLifecycle(
-                () =>
-                  createJournalNote(formData).then((result) => {
-                    if (result.ok) setCellNoteBody("");
-                    return result;
-                  }),
-                "Note added.",
-              );
-            }}
-          >
-            <label className="text-sm" htmlFor="cell-note-body">Note</label>
-            <textarea
-              id="cell-note-body"
-              value={cellNoteBody}
-              onChange={(event) => setCellNoteBody(event.target.value)}
-              rows={2}
-              placeholder="Aphids showed up here today…"
-              className="min-h-11 w-full rounded-md border bg-[var(--color-surface)] px-3 py-2"
-              style={{ borderColor: "var(--color-border)" }}
-            />
-            <button
-              type="submit"
-              disabled={lifecycleBusy || !cellNoteBody.trim()}
-              className={`self-start rounded-md border px-3 ${MIN_TOUCH_TARGET}`}
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              Save note
-            </button>
-          </form>
           {lifecycleMessage && <p role="status" className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lifecycleMessage}</p>}
           </div>
           )}

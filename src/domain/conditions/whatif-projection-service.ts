@@ -35,6 +35,7 @@ import {
 } from "@/domain/ecology/ecology-service";
 import { InvalidProjectionInputError } from "./errors";
 import { applyConditionModifiers, combineModifiers, NEUTRAL_MODIFIERS, type ConditionModifiers } from "./condition-modifiers";
+import { irrigationDeliveryMm } from "@/domain/soil/water-bucket-service";
 
 // Same cap rationale as the real catch-up's MAX_CATCH_UP_DAYS (architecture
 // doc's §14/§15): bound request latency and how much a single preview can
@@ -167,6 +168,25 @@ export async function runWhatIfProjection(
     ecologyModifiersByBed.set(bedId, computeEcologyModifiersForBed(cells));
   }
 
+  // A what-if preview isn't given any control over irrigation (only
+  // lightMultiplier/rainMultiplier exist on ProjectionOverrideInput), so it
+  // reflects reality neutrally here: the automatic daily cycle(s) already
+  // configured on the bed's IrrigationSystem are assumed to keep running on
+  // schedule for every projected day, same "diverge only in the override"
+  // rule this file's own header comment states. Resolved once per bed, same
+  // treatment as ecologyModifiersByBed above.
+  const irrigationSystems = await prisma.irrigationSystem.findMany({
+    where: { beds: { some: { id: { in: input.bedIds } } } },
+    include: { beds: { select: { id: true } } },
+  });
+  const dailyIrrigationMmByBed = new Map<string, number>();
+  for (const system of irrigationSystems) {
+    const mmPerDay = irrigationDeliveryMm(system.durationMinutes) * system.dailyStartTimes.length;
+    for (const bed of system.beds) {
+      dailyIrrigationMmByBed.set(bed.id, (dailyIrrigationMmByBed.get(bed.id) ?? 0) + mmPerDay);
+    }
+  }
+
   const results: PlantingProjection[] = [];
 
   for (const planting of plantings) {
@@ -176,6 +196,7 @@ export async function runWhatIfProjection(
     const modifiers = modifiersForBed(planting.cell.bedId, input.overrides);
     const ecologyModifiers =
       ecologyModifiersByBed.get(planting.cell.bedId)?.get(planting.cellId) ?? NEUTRAL_ECOLOGY_MODIFIERS;
+    const dailyIrrigationMm = dailyIrrigationMmByBed.get(planting.cell.bedId) ?? 0;
 
     // Starts from the planting's CURRENT real state, falling back to a
     // fresh-planting baseline if it hasn't had its first real catch-up yet
@@ -218,6 +239,7 @@ export async function runWhatIfProjection(
         activeDiseaseEffect: NEUTRAL_DISEASE_EFFECT,
         pestPressureDialValue: 0,
         pestDamage: NEUTRAL_PEST_DAMAGE,
+        irrigationMm: dailyIrrigationMm,
       });
       biology = dayResult.biology;
       environment = dayResult.environment;

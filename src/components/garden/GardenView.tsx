@@ -22,6 +22,9 @@ import {
   assignInventoryPlantAction,
   applyWeedingAction,
   createJournalNoteAction,
+  createLiveImageAction,
+  deleteLiveImageAction,
+  getLiveImagesAction,
   overridePlantingStageAction,
   recordHarvestAction,
   refreshWorkspaceAction,
@@ -29,11 +32,13 @@ import {
   type ActionResult,
   type CellTarget,
   type InventoryAssignmentTarget,
+  type LiveImageRecord,
   type WorkspaceSnapshot,
 } from "@/app/actions";
 import type { GardenJournal } from "@/domain/journal/journal-service";
 import type { InventoryPlant, InventorySnapshot } from "@/domain/plant-catalog/inventory-service";
 import { isTransitionAllowed, nextPickerState, type PickerEvent } from "@/domain/plant-ui/picker-interaction";
+import { BulkActionBar, type BulkTarget } from "./BulkActionBar";
 import { CellPicker } from "./CellPicker";
 import { GardenGrid } from "./GardenGrid";
 import { GardenSummary } from "./GardenSummary";
@@ -79,6 +84,7 @@ export interface GardenViewProps {
   initialPlants: PlantOption[];
   initialInventory?: InventorySnapshot;
   initialJournal?: GardenJournal;
+  initialLiveImages?: LiveImageRecord[];
   assignInventoryPlant?: (target: InventoryAssignmentTarget) => Promise<ActionResult>;
   removePlanting?: (target: CellTarget) => Promise<ActionResult>;
   refreshWorkspace?: () => Promise<WorkspaceSnapshot>;
@@ -137,6 +143,7 @@ export function GardenView({
   initialPlants,
   initialInventory,
   initialJournal,
+  initialLiveImages,
   assignInventoryPlant = assignInventoryPlantAction,
   removePlanting = removePlantingAction,
   refreshWorkspace = refreshWorkspaceAction,
@@ -156,6 +163,14 @@ export function GardenView({
   // garden, same as it already ignores whether the picker or summary is
   // showing in this same left-column slot.
   const [leftTab, setLeftTab] = useState<"bedLayout" | "rainBarrels" | "liveImages">("bedLayout");
+  // Multi-cell bulk selection (BulkActionBar.tsx): sits alongside the
+  // single-cell `picker` reducer rather than inside it — while selectMode is
+  // true, handleCellClick toggles membership here instead of dispatching to
+  // pickerUiReducer, so the existing single-cell CellPicker sidebar simply
+  // never opens. Keyed the same way selectedCell already is below
+  // (`${bedId}:${column}:${row}`).
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -183,6 +198,32 @@ export function GardenView({
 
   const selectedCell = picker.status === "IDLE" ? null : picker.cell;
 
+  // Resolved fresh from current `beds` state on every render (not stored),
+  // same "derive during render" principle selectedCell above follows for
+  // its own reducer-backed value — a bed refresh after a bulk action keeps
+  // these in sync automatically instead of needing a separate effect.
+  const bulkTargets: BulkTarget[] = selectMode
+    ? Array.from(selectedCells)
+        .map((key): BulkTarget | null => {
+          const [bedId, columnRaw, rowRaw] = key.split(":");
+          const column = Number(columnRaw);
+          const row = Number(rowRaw);
+          const bed = beds.find((item) => item.id === bedId);
+          const cell = bed?.cells.find((item) => item.column === column && item.row === row);
+          if (!bed || !cell) {
+            return null;
+          }
+          return {
+            bedId: bed.id,
+            bedName: bed.name,
+            column: cell.column,
+            row: cell.row,
+            primaryCellPlantingId: cell.plantings[0]?.id ?? null,
+          };
+        })
+        .filter((target): target is BulkTarget => target !== null)
+    : [];
+
   useEffect(() => {
     if (!isSubmitting && pendingFocusReturn.current) {
       pendingFocusReturn.current = false;
@@ -207,7 +248,42 @@ export function GardenView({
     dispatch({ type: "click_cell", cell: target });
   }
 
+  function cellKey(bedId: string, column: number, row: number): string {
+    return `${bedId}:${column}:${row}`;
+  }
+
+  function toggleCellSelection(bedId: string, column: number, row: number): void {
+    const key = cellKey(bedId, column, row);
+    setSelectedCells((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  function handleToggleSelectMode(): void {
+    setSelectMode((current) => {
+      const next = !current;
+      if (next) {
+        // Entering select mode dismisses whatever single-cell picker is
+        // open — the two selection flows are mutually exclusive.
+        dispatch({ type: "deselect" });
+      } else {
+        setSelectedCells(new Set());
+      }
+      return next;
+    });
+  }
+
   function handleCellClick(bed: SnapshotBed, cell: SnapshotCell, event: React.MouseEvent<HTMLButtonElement>): void {
+    if (selectMode) {
+      toggleCellSelection(bed.id, cell.column, cell.row);
+      return;
+    }
     lastFocusedCellRef.current = event.currentTarget;
     selectCell({
       bedId: bed.id,
@@ -390,6 +466,16 @@ export function GardenView({
     }
   }
 
+  async function handleBulkActionDone(message: string): Promise<void> {
+    try {
+      await refreshAll();
+    } catch {
+      setError("Bulk action completed, but the garden view failed to refresh. Reload the page to see the latest state.");
+      return;
+    }
+    setStatusMessage(message);
+  }
+
   function handleDragStart(event: DragStartEvent): void {
     setActiveDrag((event.active.data.current?.plant as InventoryPlant | undefined) ?? null);
   }
@@ -493,7 +579,13 @@ export function GardenView({
           selectedCell={selectedCell}
           disabled={isSubmitting}
           onCellClick={handleCellClick}
+          selectMode={selectMode}
+          selectedCellKeys={selectedCells}
+          onToggleSelectMode={handleToggleSelectMode}
         />
+        {selectMode && bulkTargets.length > 0 && (
+          <BulkActionBar targets={bulkTargets} plants={plants} disabled={isSubmitting} onDone={handleBulkActionDone} />
+        )}
         {selectedCell && (
           <div ref={pickerPanelRef} className="scroll-mt-6">
             {/* Keyed to the cell's identity, not just its position in the
@@ -533,7 +625,13 @@ export function GardenView({
           <RainBarrelPanel rainBarrels={rainBarrels} disabled={isSubmitting} onChanged={refreshAll} />
         </div>
         <div id="liveImages-panel" role="tabpanel" aria-labelledby="liveImages-tab" hidden={leftTab !== "liveImages"}>
-          <LiveImageGallery />
+          <LiveImageGallery
+            initialLiveImages={initialLiveImages}
+            disabled={isSubmitting}
+            getLiveImages={getLiveImagesAction}
+            createLiveImage={createLiveImageAction}
+            deleteLiveImage={deleteLiveImageAction}
+          />
         </div>
         {/* Outside both tabs per user request — an ambient overview
             shouldn't disappear just because you switched to Rain Barrels,

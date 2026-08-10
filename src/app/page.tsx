@@ -3,6 +3,7 @@ import { getGardenSnapshot } from "@/domain/grid/grid-cell-service";
 import { catchUpGrowth } from "@/domain/growth/catch-up-service";
 import { getGardenJournal } from "@/domain/journal/journal-service";
 import { getInventorySnapshot } from "@/domain/plant-catalog/inventory-service";
+import { listLiveImages } from "@/domain/live-images/live-image-service";
 import { prisma } from "@/lib/prisma";
 
 // This page runs a write (catchUpGrowth) on every load, so it must never be
@@ -20,11 +21,13 @@ export default async function Home() {
   // what lets the test suite call catchUpGrowth without mocking fetch or
   // hitting the network (src/app/actions.ts's read actions do the same).
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
-  const [snapshot, inventory, journal] = await Promise.all([
+  const [snapshot, inventory, journal, liveImageRows] = await Promise.all([
     getGardenSnapshot(prisma),
     getInventorySnapshot(prisma),
     getGardenJournal(prisma),
+    listLiveImages(prisma),
   ]);
+  const liveImages = liveImageRows.map((image) => ({ id: image.id, capturedAt: image.capturedAt.toISOString() }));
 
   return (
     <main className="mx-auto flex w-full max-w-[112rem] flex-col gap-8 px-4 py-6 sm:px-5 sm:py-8 lg:px-6 lg:py-10 xl:px-10 2xl:px-4">
@@ -52,6 +55,7 @@ export default async function Home() {
         initialPlants={inventory.seeds}
         initialInventory={inventory}
         initialJournal={journal}
+        initialLiveImages={liveImages}
       />
     </main>
   );

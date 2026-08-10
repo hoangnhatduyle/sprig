@@ -21,3 +21,17 @@ export function formatJournalTimestamp(iso: string): string {
     timeZone: "UTC",
   });
 }
+
+// Live Images' capturedAt is a date the user picked (from <input
+// type="date">, no time-of-day component), so this omits hour/minute
+// entirely rather than showing a misleading midnight — same UTC pin as
+// formatJournalTimestamp above, and for the same reason.
+export function formatLiveImageDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}

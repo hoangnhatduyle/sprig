@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CellPicker } from "./CellPicker";
 import type { SelectedCell } from "./types";
@@ -71,9 +71,8 @@ function renderCellPicker(cell: SelectedCell) {
       error={null}
     />,
   );
-  // GrowthReadout lives inside the collapsible "Growth" section — open it so
-  // these assertions can see its content.
-  fireEvent.click(screen.getByRole("button", { name: "Growth" }));
+  // GrowthReadout lives inside the collapsible "Growth" section, which is
+  // open by default — no click needed to reach its content.
   return result;
 }
 

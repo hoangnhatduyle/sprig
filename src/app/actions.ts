@@ -11,6 +11,7 @@ import {
   harvest,
   recordHarvest,
   removePlanting,
+  waterCell,
 } from "@/domain/grid/grid-cell-service";
 import type { GardenSnapshot } from "@/domain/grid/grid-cell-service";
 import { catchUpGrowth } from "@/domain/growth/catch-up-service";
@@ -54,6 +55,7 @@ import { applyFungicideToCell } from "@/domain/disease/disease-action-service";
 import { applyPesticideToBed, releasePredatorsToBed } from "@/domain/pests/pest-action-service";
 import { InvalidPestActionAmountError, UnknownPestKeyError, UnknownPredatorKeyError } from "@/domain/pests/errors";
 import { addWater, drawWater, updateCatchmentArea } from "@/domain/irrigation/rain-barrel-service";
+import { ensureRealIrrigationSystemsSeeded, maybeTriggerDailyCycle } from "@/domain/irrigation/irrigation-service";
 import {
   ConcurrentModificationError as RainBarrelConcurrentModificationError,
   InsufficientWaterError,
@@ -86,9 +88,12 @@ import { getYieldTrend, type YieldTrendPoint } from "@/domain/journal/yield-tren
 import { JournalValidationError } from "@/domain/journal/errors";
 import { startNewSeason } from "@/domain/season/season-reset-service";
 import { getWeatherRangeView, type WeatherDayView } from "@/domain/weather/weather-service";
+import { createLiveImage, deleteLiveImage, listLiveImages } from "@/domain/live-images/live-image-service";
+import { LiveImageValidationError } from "@/domain/live-images/errors";
 import { prisma } from "@/lib/prisma";
 import { PlantImageError, removePlantImage, storePlantImage } from "@/lib/plant-images";
 import { JournalPhotoError, removeJournalPhoto, storeJournalPhoto } from "@/lib/journal-photos";
+import { LiveImageError, removeLiveImage, storeLiveImage } from "@/lib/live-images";
 
 export interface CellTarget {
   bedId: string;
@@ -186,13 +191,33 @@ export async function removePlantingAction(target: CellTarget): Promise<ActionRe
   }
 }
 
+// Advances every real IrrigationSystem's IDLE/RUNNING cycle up to `now`,
+// same "derive on read" trigger point catchUpGrowth uses just below — one
+// call can only hop one transition (see maybeTriggerDailyCycle's own doc
+// comment), so this loops until a call reports "noop" for every system,
+// catching a system up through however many windows/cycles it missed since
+// the last read instead of advancing it one step per page load.
+async function triggerDueIrrigationCycles(now: Date): Promise<void> {
+  await ensureRealIrrigationSystemsSeeded(prisma);
+  const systems = await prisma.irrigationSystem.findMany({ select: { id: true } });
+  for (const system of systems) {
+    while ((await maybeTriggerDailyCycle(prisma, system.id, now)) !== "noop") {
+      // keep advancing this system's cycle until it's caught up to `now`.
+    }
+  }
+}
+
 // catchUpGrowth runs the growth engine's daily step for every simulated day
 // that's elapsed since the last read (src/domain/growth/catch-up-service.ts)
 // before the snapshot is computed — this is the "derive on read" trigger
 // point the architecture doc's §2 calls for, mirroring how the irrigation
 // domain's maybeTriggerDailyCycle is invoked on read rather than by a
-// background worker.
+// background worker. triggerDueIrrigationCycles runs first so any
+// IrrigationRun rows it creates are visible to catchUpGrowth's own
+// irrigation-to-soil-moisture step.
 export async function refreshGardenSnapshotAction(): Promise<GardenSnapshot> {
+  const now = new Date();
+  await triggerDueIrrigationCycles(now);
   // REAL_API here, not catchUpGrowth's own PROCEDURAL default — that
   // default is what lets the test suite call catchUpGrowth without mocking
   // fetch or hitting the network. Every real app entry point opts into real
@@ -212,6 +237,7 @@ export interface WorkspaceSnapshot {
 }
 
 export async function refreshWorkspaceAction(): Promise<WorkspaceSnapshot> {
+  await triggerDueIrrigationCycles(new Date());
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [garden, inventory] = await Promise.all([
     getGardenSnapshot(prisma),
@@ -894,6 +920,23 @@ export async function applyWeedingAction(input: { bedId: string; column: number;
   }
 }
 
+// Manual per-cell watering — the counterpart to the automatic twice-daily
+// IrrigationSystem cycle, for a one-off top-up on a single cell (or looped
+// by BulkActionBar.tsx across a multi-select). Sets the same GridCell
+// waterState field the automatic cycle sets in bulk; see waterCell's own
+// comment in grid-cell-service.ts for why the two never conflict.
+export async function waterCellAction(input: { bedId: string; column: number; row: number }): Promise<ActionResult> {
+  if (!input || typeof input.bedId !== "string" || !input.bedId || !Number.isInteger(input.column) || !Number.isInteger(input.row)) {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    await waterCell(prisma, input);
+    return { ok: true };
+  } catch (error: unknown) {
+    return { ok: false, error: describeGridError(error) };
+  }
+}
+
 function describePestActionError(error: unknown): string {
   if (error instanceof UnknownPestKeyError || error instanceof UnknownPredatorKeyError || error instanceof InvalidPestActionAmountError) {
     return error.message;
@@ -1024,6 +1067,64 @@ export async function createJournalNoteAction(formData: FormData): Promise<Actio
   } catch (error) {
     if (stored) await removeJournalPhoto(stored.filename);
     return { ok: false, error: describeJournalError(error) };
+  }
+}
+
+export interface LiveImageRecord {
+  id: string;
+  capturedAt: string;
+}
+
+function describeLiveImageError(error: unknown): string {
+  if (error instanceof LiveImageValidationError || error instanceof LiveImageError) {
+    return error.message;
+  }
+  console.error("[LIVE_IMAGES] unexpected live image error:", error);
+  return "Something went wrong. Please try again.";
+}
+
+export async function getLiveImagesAction(): Promise<LiveImageRecord[]> {
+  const images = await listLiveImages(prisma);
+  return images.map((image) => ({ id: image.id, capturedAt: image.capturedAt.toISOString() }));
+}
+
+// Mirrors createJournalNoteAction above, but the photo is required (every
+// LiveImage row is a photo, there's no text-only variant) and capturedAt is
+// read from the form — unlike JournalNote.occurredAt, which always defaults
+// to "now" server-side, Live Images is explicitly meant for backdating old
+// photos, so any parseable date is accepted (including future/far-past —
+// there's no clear "reasonable" tolerance window to enforce here).
+export async function createLiveImageAction(formData: FormData): Promise<ActionResult> {
+  const image = formData.get("image");
+  if (!(image instanceof File) || image.size === 0) {
+    return { ok: false, error: "Choose a photo to upload." };
+  }
+  const capturedAtRaw = formData.get("capturedAt");
+  const capturedAt = typeof capturedAtRaw === "string" && capturedAtRaw ? new Date(capturedAtRaw) : new Date();
+
+  let stored: { filename: string; mimeType: string } | null = null;
+  try {
+    stored = await storeLiveImage(image);
+    await createLiveImage(prisma, {
+      photoFilename: stored.filename,
+      photoMimeType: stored.mimeType,
+      capturedAt,
+    });
+    return { ok: true };
+  } catch (error) {
+    if (stored) await removeLiveImage(stored.filename);
+    return { ok: false, error: describeLiveImageError(error) };
+  }
+}
+
+export async function deleteLiveImageAction(id: string): Promise<ActionResult> {
+  if (!id) return { ok: false, error: "Invalid request." };
+  try {
+    const deleted = await deleteLiveImage(prisma, id);
+    await removeLiveImage(deleted.photoFilename);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: describeLiveImageError(error) };
   }
 }
 

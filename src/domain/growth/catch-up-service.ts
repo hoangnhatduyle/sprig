@@ -26,6 +26,7 @@ import type { BiologyState, PhenologyStage, SpeciesGrowthParams } from "./growth
 import { runOneDayForPlanting, type DailyEnvironmentState } from "./daily-step-orchestrator";
 import { getCurrentSimTime } from "./sim-clock-service";
 import { applyDailyRainfall } from "@/domain/irrigation/rain-barrel-service";
+import { irrigationDeliveryMm } from "@/domain/soil/water-bucket-service";
 import { getDiseaseDefinition } from "@/domain/disease/disease-catalog";
 import {
   conditionMatchForDisease,
@@ -291,6 +292,30 @@ export async function catchUpGrowth(
 
   const bedIds = Array.from(new Set(plantings.map((planting) => planting.cell.bedId)));
 
+  // Real irrigation delivery, resolved once per bed for the whole catch-up
+  // window (same "resolved once, not once per simulated day" treatment as
+  // ecology modifiers and pest populations above) — keyed by bed and UTC day
+  // so a bed with two daily windows (e.g. 08:00 + 17:00) sums both runs'
+  // delivery into that day's total. maybeTriggerDailyCycle (invoked by the
+  // action layer before this function runs) is what actually creates these
+  // IrrigationRun rows; this only reads them back into the water bucket.
+  const irrigationSystems = await prisma.irrigationSystem.findMany({
+    where: { beds: { some: { id: { in: bedIds } } } },
+    include: { beds: { select: { id: true } }, runs: true },
+  });
+  const irrigationMmByBedAndDay = new Map<string, Map<string, number>>();
+  for (const system of irrigationSystems) {
+    const mmPerRun = irrigationDeliveryMm(system.durationMinutes);
+    for (const run of system.runs) {
+      const dayKey = startOfUtcDay(run.startedAt).toISOString();
+      for (const bed of system.beds) {
+        const bedMap = irrigationMmByBedAndDay.get(bed.id) ?? new Map<string, number>();
+        bedMap.set(dayKey, (bedMap.get(dayKey) ?? 0) + mmPerRun);
+        irrigationMmByBedAndDay.set(bed.id, bedMap);
+      }
+    }
+  }
+
   // Pest/predator population catch-up (architecture doc §10): bed-scoped,
   // stepped ONCE per bed for the whole catch-up window here, ahead of the
   // per-planting loop — the same "resolved once per whole window, not
@@ -554,6 +579,7 @@ export async function catchUpGrowth(
       const isSeedlingStage = biology.phenologyStage === "GERMINATING" || biology.phenologyStage === "VEGETATIVE";
       const pestDamage = computeDamageForPlanting(speciesProfile.growthHabit, bedPestPopulations, isSeedlingStage);
       const pressureDial = pestPressureDialValue(speciesProfile.growthHabit, bedPestPopulations);
+      const dayIrrigationMm = irrigationMmByBedAndDay.get(bedId)?.get(cursor.toISOString()) ?? 0;
 
       const dayResult = runOneDayForPlanting({
         species,
@@ -570,6 +596,7 @@ export async function catchUpGrowth(
         activeDiseaseEffect,
         pestPressureDialValue: pressureDial,
         pestDamage,
+        irrigationMm: dayIrrigationMm,
       });
       biology = dayResult.biology;
       environment = dayResult.environment;

@@ -69,24 +69,28 @@ export async function endCycle(
   });
 }
 
-function startOfDay(date: Date): Date {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
-// A malformed dailyStartTime (a typo like "8" instead of "08:00", an empty
-// string, an out-of-range hour) must not silently no-op the automatic
+// A malformed dailyStartTime entry (a typo like "8" instead of "08:00", an
+// empty string, an out-of-range hour) must not silently no-op the automatic
 // trigger forever — that would defeat NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL
 // just as thoroughly as skipping the window on purpose, only quieter.
 function parseDailyStartTime(dailyStartTime: string): { hour: number; minute: number } {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(dailyStartTime);
   if (!match) {
     throw new InvalidDailyStartTimeError(
-      `IrrigationSystem.dailyStartTime "${dailyStartTime}" is not a valid 24-hour "HH:MM" time.`,
+      `IrrigationSystem.dailyStartTimes entry "${dailyStartTime}" is not a valid 24-hour "HH:MM" time.`,
     );
   }
   return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+// Today's window-start instant for one configured daily time, anchored to
+// `now`'s own calendar day — same "local day" assumption the rest of this
+// module already makes.
+function windowStartFor(dailyStartTime: string, now: Date): Date {
+  const { hour, minute } = parseDailyStartTime(dailyStartTime);
+  const windowStart = new Date(now);
+  windowStart.setHours(hour, minute, 0, 0);
+  return windowStart;
 }
 
 // Same failure class as dailyStartTime: a non-positive durationMinutes
@@ -104,17 +108,21 @@ function assertValidDurationMinutes(durationMinutes: number): void {
 // The automatic driver behind NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL: a
 // caller (the REAL-mode viewer's clock tick, in a future spec) invokes this
 // on every tick with the current simulated/real time. No separate "start"
-// or "stop" UI action exists — crossing the daily window is what drives the
+// or "stop" UI action exists — crossing a daily window is what drives the
 // IDLE/RUNNING transition, mirroring how sunrise/sunset drives the light
-// system.
+// system. A system can have more than one dailyStartTimes entry (e.g. an
+// 08:00 and a 17:00 cycle from the same physical grid) — each is its own
+// independent window, checked in chronological order.
 //
-// Starting is gated on "no run recorded yet today", not on `now` still
-// being inside the nominal window: a tick cadence coarser than the window
-// (a skipped tick, a large simulated-time jump) must not cause the whole
-// day's watering to be silently skipped forever. Ending is gated on the
-// duration having elapsed since the run's *actual* startedAt, not the
-// nominal daily window — a catch-up-started run must still get its full
-// durationMinutes, not be judged against the window it missed.
+// Starting a given window is gated on "no run recorded yet at-or-after that
+// window's own start", not on `now` still being inside the nominal window:
+// a tick cadence coarser than the window (a skipped tick, a large
+// simulated-time jump) must not cause that window's watering to be silently
+// skipped forever, and an earlier window's run must never be mistaken for a
+// later window's. Ending is gated on the duration having elapsed since the
+// run's *actual* startedAt, not the nominal daily window — a catch-up-started
+// run must still get its full durationMinutes, not be judged against the
+// window it missed.
 //
 // This function's own read of `system.status` happens outside a
 // transaction, so two ticks firing close together can both read the same
@@ -153,16 +161,27 @@ export async function maybeTriggerDailyCycle(
     return "noop";
   }
 
-  // status === "IDLE"
-  const { hour: startHour, minute: startMinute } = parseDailyStartTime(system.dailyStartTime);
-  const windowStart = new Date(now);
-  windowStart.setHours(startHour, startMinute, 0, 0);
+  // status === "IDLE" — walk each configured window in chronological order
+  // and start the first one that's due and hasn't run yet. A later call
+  // (next tick) picks up wherever this one left off, same one-transition-
+  // per-call contract the RUNNING branch above already has.
+  if (system.dailyStartTimes.length === 0) {
+    throw new InvalidDailyStartTimeError(
+      `IrrigationSystem ${systemId} has no configured dailyStartTimes.`,
+    );
+  }
+  const windowStarts = system.dailyStartTimes
+    .map((time) => windowStartFor(time, now))
+    .sort((a, b) => a.getTime() - b.getTime());
 
-  if (now >= windowStart) {
-    const todaysRun = await prisma.irrigationRun.findFirst({
-      where: { systemId, startedAt: { gte: startOfDay(now) } },
+  for (const windowStart of windowStarts) {
+    if (now < windowStart) {
+      continue;
+    }
+    const runForWindow = await prisma.irrigationRun.findFirst({
+      where: { systemId, startedAt: { gte: windowStart } },
     });
-    if (!todaysRun) {
+    if (!runForWindow) {
       try {
         await startCycle(prisma, systemId, now);
         return "started";
@@ -175,6 +194,24 @@ export async function maybeTriggerDailyCycle(
     }
   }
   return "noop";
+}
+
+// Self-healing, mirrors species-catalog.ts's ensureSpeciesCatalogSeeded: a
+// bed with no IrrigationSystem yet (a fresh DB, or a bed added after this
+// feature shipped) gets one created here with the schema's own defaults
+// (dailyStartTimes 08:00+17:00, durationMinutes 10, SPIGOT_ASSUMED) rather
+// than silently never watering — one system per bed, matching the real
+// garden's own setup (one physical drip grid per bed).
+export async function ensureRealIrrigationSystemsSeeded(prisma: PrismaClient): Promise<void> {
+  const unlinkedBeds = await prisma.bed.findMany({
+    where: { irrigationSystems: { none: {} } },
+    select: { id: true },
+  });
+  for (const bed of unlinkedBeds) {
+    await prisma.irrigationSystem.create({
+      data: { beds: { connect: [{ id: bed.id }] } },
+    });
+  }
 }
 
 // The REAL baseline read model: one row per grid cell, sourced directly

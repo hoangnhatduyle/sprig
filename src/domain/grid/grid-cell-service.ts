@@ -380,6 +380,19 @@ export function removeCell(prisma: PrismaClient, input: CellLookup): Promise<voi
   return advanceLifecycle(prisma, input, "remove");
 }
 
+// Manual per-cell watering: sets the same waterState field the automatic
+// IrrigationSystem cycle sets in bulk (irrigation-service.ts's startCycle),
+// just scoped to one cell instead of every cell in a bed. No lifecycle
+// transition involved (unlike germinate/grow/harvest above) — waterState is
+// a no-decay flag, not a CellStatus, so this never conflicts with the
+// automatic cycle: both simply set the same cell to WET.
+export async function waterCell(prisma: PrismaClient, input: CellLookup): Promise<void> {
+  await prisma.gridCell.update({
+    where: { bedId_column_row: { bedId: input.bedId, column: input.column, row: input.row } },
+    data: { waterState: "WET" },
+  });
+}
+
 // Local mirrors of the growth domain's Prisma-backed enums (same pattern as
 // this file's own CellStatus, imported from planting-lifecycle.ts rather
 // than @prisma/client): the grid domain reads PlantingBiologyState +

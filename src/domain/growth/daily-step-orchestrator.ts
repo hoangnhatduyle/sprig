@@ -77,6 +77,13 @@ export interface DailyStepInputs {
   activeDiseaseEffect: DiseaseInstanceEffect;
   pestPressureDialValue: number;
   pestDamage: PestDamageEffect;
+  // mm delivered into this cell's water bucket by its bed's IrrigationSystem
+  // today (0 on a day with no completed cycle) — resolved by the caller
+  // (catch-up-service.ts) from IrrigationRun rows, the same "caller resolves
+  // the day's real-world inputs, this function just steps the model"
+  // division of responsibility the rest of this file's inputs already
+  // follow (weather, disease effect, pest damage).
+  irrigationMm: number;
 }
 
 export interface DailyStepResult {
@@ -93,10 +100,7 @@ export function runOneDayForPlanting(inputs: DailyStepInputs): DailyStepResult {
   const waterResult = stepWaterBucket({
     soilMoistureFraction: inputs.environment.soilMoistureFraction,
     rainMm: inputs.weather.precipitationMm,
-    // Real irrigation inflow is wired into this bucket by the caller before
-    // reaching this orchestrator in a later phase; Phase 2 still models
-    // rain only, same as Phase 1.
-    irrigationMm: 0,
+    irrigationMm: inputs.irrigationMm,
     et0Mm: estimateReferenceEt0Mm(meanTempC),
     cropCoefficient: 1,
     mulchFactor,

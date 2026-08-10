@@ -66,6 +66,30 @@ function usePrefersReducedMotion(): boolean {
   return useSyncExternalStore(subscribeReducedMotion, getReducedMotionSnapshot, () => false);
 }
 
+// Same useSyncExternalStore pattern as usePrefersReducedMotion above, just
+// subscribed to document.visibilitychange instead of a media query — a
+// backgrounded/unfocused tab must not keep paying for continuous
+// frameloop="always" rendering (rain/pest animation) just because weather or
+// a pest swarm happens to be active. See the frameloop computation below.
+function subscribePageVisible(callback: () => void): () => void {
+  if (typeof document === "undefined") {
+    return () => {};
+  }
+  document.addEventListener("visibilitychange", callback);
+  return () => document.removeEventListener("visibilitychange", callback);
+}
+
+function getPageVisibleSnapshot(): boolean {
+  if (typeof document === "undefined") {
+    return true;
+  }
+  return document.visibilityState === "visible";
+}
+
+function usePageVisible(): boolean {
+  return useSyncExternalStore(subscribePageVisible, getPageVisibleSnapshot, () => true);
+}
+
 const INITIAL_CAMERA = orbitCameraPosition(
   { distance: garden3dCameraDistance(4 / 3), azimuthAngle: Math.PI / 4, polarAngle: 1.0 },
   GARDEN_3D_ORBIT_BOUNDS,
@@ -121,6 +145,7 @@ export function GardenViewer3D({ beds, environment, rainBarrels, plants, selecte
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const canRender3D = useWebGlSupport();
   const reducedMotion = usePrefersReducedMotion();
+  const pageVisible = usePageVisible();
 
   const cellStates = useMemo(() => buildCellRenderStates(beds, selectedCell), [beds, selectedCell]);
   const equipmentBySide = useMemo(() => buildEquipmentRenderStates(beds), [beds]);
@@ -157,8 +182,12 @@ export function GardenViewer3D({ beds, environment, rainBarrels, plants, selecte
   // a pest/predator swarm, PestSwarm.tsx's own <Sparkles>) is active,
   // particles would render as a single frozen point cloud instead of
   // falling/hovering. Reverts to "demand" (this canvas's normal, cheaper
-  // mode) the moment there's nothing to animate or motion is reduced.
-  const frameloop = (weatherVisual || hasActiveSwarm) && !reducedMotion ? "always" : "demand";
+  // mode) the moment there's nothing to animate, motion is reduced, OR the
+  // tab isn't visible — a backgrounded tab with active rain/pests has no
+  // reason to keep rendering every frame at full, uncapped rate (the
+  // reported cause of sustained high CPU/GPU usage while the page sits open
+  // in the background).
+  const frameloop = (weatherVisual || hasActiveSwarm) && !reducedMotion && pageVisible ? "always" : "demand";
 
   function handleCellClick(nodeName: string): void {
     if (disabled) {
@@ -209,7 +238,11 @@ export function GardenViewer3D({ beds, environment, rainBarrels, plants, selecte
             aria-hidden="true"
             style={{ touchAction: "none" }}
             camera={{ position: INITIAL_CAMERA, fov: 45 }}
-            dpr={[1, 2]}
+            // Capped at 1.5 rather than the drei/r3f default of 2 — halves
+            // peak pixel count on high-DPI laptop screens (the reported
+            // fan-spin hardware) with minimal visible quality loss on a
+            // scene this size.
+            dpr={[1, 1.5]}
             frameloop={frameloop}
           >
             <ResponsiveCamera controlsRef={controlsRef} />

@@ -277,7 +277,7 @@ enum IrrigationSystemStatus {
 // instead of an unscoped, all-cells-in-the-database update.
 model IrrigationSystem {
   id              String                 @id @default(cuid())
-  dailyStartTime  String                 @default("08:00")
+  dailyStartTimes String[]               @default(["08:00", "17:00"])
   durationMinutes Int                    @default(10)
   waterSource     String                 @default("SPIGOT_ASSUMED")
   status          IrrigationSystemStatus @default(IDLE)
@@ -723,4 +723,21 @@ model JournalNote {
   @@index([bedId, occurredAt])
   @@index([cellId, occurredAt])
   @@index([occurredAt])
+}
+
+// A user-uploaded reference photo of the physical garden — the "Live
+// Images" diary, garden-wide with no bed/cell scoping (unlike JournalNote's
+// optional photo, which is one-per-note and journal-scoped). Unlike
+// JournalNote, this is user-deletable: a diary photo can be a mistake or
+// duplicate, and nothing else references a LiveImage by foreign key.
+// capturedAt is the user-set/backdatable date the photo represents;
+// createdAt is the real upload time.
+model LiveImage {
+  id            String   @id @default(cuid())
+  photoFilename String
+  photoMimeType String
+  capturedAt    DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([capturedAt])
 }

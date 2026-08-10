@@ -29,6 +29,7 @@ export async function resetGridTables(prisma: PrismaClient): Promise<void> {
   await prisma.gridCellEvent.deleteMany();
   await prisma.careActionEvent.deleteMany();
   await prisma.journalNote.deleteMany();
+  await prisma.liveImage.deleteMany();
   await prisma.cellPlanting.deleteMany();
   await prisma.bedRenovation.deleteMany();
   await prisma.gridCell.deleteMany();

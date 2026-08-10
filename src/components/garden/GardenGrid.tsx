@@ -30,6 +30,19 @@ type GardenGridProps = {
   selectedCell: SelectedCell | null;
   disabled?: boolean;
   onCellClick: (bed: SnapshotBed, cell: SnapshotCell, event: React.MouseEvent<HTMLButtonElement>) => void;
+  // Multi-select overlay (BulkActionBar.tsx): when selectMode is true, a
+  // click still routes through onCellClick — GardenView.tsx branches there
+  // on whether select mode is active — this component only needs to know
+  // which cells are currently in the set to render the checkbox highlight
+  // instead of the single-select ring below.
+  selectMode?: boolean;
+  selectedCellKeys?: ReadonlySet<string>;
+  // Paired with the soil-moisture-heatmap toggle below the grid (both are
+  // grid-display-mode switches, not bed content) rather than living in its
+  // own row above the beds — selectMode/selectedCellKeys stay owned by
+  // GardenView.tsx (they drive handleCellClick and BulkActionBar there);
+  // this is only the toggle affordance.
+  onToggleSelectMode?: () => void;
 };
 
 function bedLabel(name: string): string {
@@ -61,6 +74,8 @@ function DroppableCell({
   disabled,
   onCellClick,
   showMoistureHeatmap,
+  selectMode,
+  isMultiSelected,
 }: {
   bed: SnapshotBed;
   cell: SnapshotCell;
@@ -69,13 +84,16 @@ function DroppableCell({
   disabled: boolean;
   onCellClick: GardenGridProps["onCellClick"];
   showMoistureHeatmap: boolean;
+  selectMode: boolean;
+  isMultiSelected: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `cell:${bed.id}:${cell.column}:${cell.row}`,
     data: { bed, cell },
-    disabled,
+    disabled: disabled || selectMode,
   });
   const isSelected =
+    !selectMode &&
     selectedCell?.bedId === bed.id &&
     selectedCell.column === cell.column &&
     selectedCell.row === cell.row;
@@ -115,10 +133,11 @@ function DroppableCell({
       disabled={disabled}
       onClick={(event) => onCellClick(bed, cell, event)}
       aria-current={isSelected ? "true" : undefined}
-      aria-label={`${bedLabel(bed.name)}, column ${cell.column}, row ${cell.row}, ${cell.status.toLowerCase()}${plantNamesSuffix(cell, plants)}${healthPhrase ? `, ${healthPhrase}` : ""}${infectionPhrase ? `, ${infectionPhrase}` : ""}${companionPhrase ? `, ${companionPhrase}` : ""}`}
+      aria-pressed={selectMode ? isMultiSelected : undefined}
+      aria-label={`${bedLabel(bed.name)}, column ${cell.column}, row ${cell.row}, ${cell.status.toLowerCase()}${plantNamesSuffix(cell, plants)}${healthPhrase ? `, ${healthPhrase}` : ""}${infectionPhrase ? `, ${infectionPhrase}` : ""}${companionPhrase ? `, ${companionPhrase}` : ""}${selectMode ? `, ${isMultiSelected ? "selected" : "not selected"}` : ""}`}
       className={`relative flex aspect-square min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border-2 p-1 text-center text-[10px] font-medium leading-tight shadow-sm outline-none transition-[transform,box-shadow,background-color] duration-150 @min-[42rem]:text-xs xl:min-h-0 hover:z-10 hover:-translate-y-0.5 hover:shadow-md focus-visible:z-20 focus-visible:-translate-y-0.5 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--color-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-ring-offset)] disabled:cursor-not-allowed disabled:opacity-60 ${showMoistureHeatmap ? "" : STATUS_STYLES[cell.status]} ${
         isSelected ? "z-10 -translate-y-0.5 shadow-md ring-2 ring-[var(--color-clay)] ring-offset-1" : ""
-      } ${isOver ? "z-20 scale-105 ring-4 ring-[var(--color-accent)]" : ""}`}
+      } ${isMultiSelected ? "z-10 -translate-y-0.5 shadow-md ring-2 ring-[var(--color-accent)] ring-offset-1" : ""} ${isOver ? "z-20 scale-105 ring-4 ring-[var(--color-accent)]" : ""}`}
       style={{
         color: "var(--status-cell-text)",
         gridColumn: cell.column,
@@ -128,6 +147,22 @@ function DroppableCell({
     >
       {primary?.imageUrl && (
         <Image src={primary.imageUrl} alt="" fill unoptimized className="object-cover opacity-35" />
+      )}
+      {selectMode && (
+        <span
+          aria-hidden="true"
+          className="absolute bottom-1 right-1 z-10 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 bg-[var(--color-surface-raised)]"
+          style={{
+            borderColor: isMultiSelected ? "var(--color-accent)" : "var(--color-border)",
+            background: isMultiSelected ? "var(--color-accent)" : "var(--color-surface-raised)",
+          }}
+        >
+          {isMultiSelected && (
+            <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 8.5 6.5 12 13 4.5" />
+            </svg>
+          )}
+        </span>
       )}
       {band && band !== "healthy" && (
         <span
@@ -159,7 +194,16 @@ function DroppableCell({
   );
 }
 
-export function GardenGrid({ beds, plants, selectedCell, disabled = false, onCellClick }: GardenGridProps) {
+export function GardenGrid({
+  beds,
+  plants,
+  selectedCell,
+  disabled = false,
+  onCellClick,
+  selectMode = false,
+  selectedCellKeys,
+  onToggleSelectMode,
+}: GardenGridProps) {
   const showEquipmentLegend = beds.some((bed) => bed.equipment.length > 0);
   const showInfectionLegend = beds.some((bed) =>
     bed.cells.some((cell) =>
@@ -283,6 +327,8 @@ export function GardenGrid({ beds, plants, selectedCell, disabled = false, onCel
                     disabled={disabled}
                     onCellClick={onCellClick}
                     showMoistureHeatmap={showMoistureHeatmap}
+                    selectMode={selectMode}
+                    isMultiSelected={selectedCellKeys?.has(`${bed.id}:${cell.column}:${cell.row}`) ?? false}
                   />
                 );
                   })}
@@ -312,6 +358,26 @@ export function GardenGrid({ beds, plants, selectedCell, disabled = false, onCel
             />
             <span>Saturated</span>
           </div>
+        )}
+        {onToggleSelectMode && (
+          <button
+            type="button"
+            aria-pressed={selectMode}
+            onClick={onToggleSelectMode}
+            className="rounded-md border px-2.5 py-1 text-xs font-medium"
+            style={{
+              borderColor: "var(--color-border)",
+              color: "var(--color-text-muted)",
+              background: selectMode ? "var(--color-surface-raised)" : "transparent",
+            }}
+          >
+            {selectMode ? "Exit select mode" : "Select cells"}
+          </button>
+        )}
+        {selectMode && (
+          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            Click cells above to select them, then choose an action below.
+          </p>
         )}
       </div>
       <LegendPanel
