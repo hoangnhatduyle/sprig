@@ -73,8 +73,13 @@ const RAIN_BARREL_BODY_NODE_PATTERN = /^RainBarrel_(\d+)_Body$/;
 // translucent, but high enough it reads as solid, hiding the whole point of
 // the water-level overlay above. Same "hide original, render a fresh overlay"
 // technique as WaterLevel, reusing the Body's own color/roughness so barrel 1
-// and 2 keep their distinct authored finishes, just genuinely see-through.
-const RAIN_BARREL_BODY_OVERLAY_OPACITY = 0.4;
+// and 2 keep their distinct authored finishes. 0.4 (the first attempt at
+// "genuinely see-through") overcorrected the other way — against the fence/
+// lawn background the wall all but disappeared, leaving only the opaque
+// water-level mesh visible and reading as a solid blue cylinder rather than
+// a barrel with water in it. This still shows the fill level through the
+// wall, just without losing the wall itself.
+const RAIN_BARREL_BODY_OVERLAY_OPACITY = 0.65;
 // Both SpigotHandle and SpigotStem are authored centered on the barrel's own
 // vertical axis (local X/Z span only ±0.07/±0.035, vs. the Body's ±0.875
 // radius) rather than offset out to the wall — invisible against the
@@ -496,22 +501,6 @@ export function GardenScene3D({
           raycast={NO_RAYCAST}
         />
       ))}
-      {barrelBodyPlacements.map((placement) => (
-        <mesh
-          key={`rainbarrel-body-${placement.yardSlot}`}
-          geometry={placement.geometry}
-          position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
-          raycast={NO_RAYCAST}
-        >
-          <meshStandardMaterial
-            color={placement.color}
-            roughness={placement.roughness}
-            transparent
-            opacity={RAIN_BARREL_BODY_OVERLAY_OPACITY}
-            depthWrite={false}
-          />
-        </mesh>
-      ))}
       {rainBarrelPlacements.map((placement) => {
         const state = rainBarrelStates.get(placement.yardSlot);
         const scaleY =
@@ -523,10 +512,40 @@ export function GardenScene3D({
             material={placement.material}
             position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
             scale={[1, scaleY, 1]}
+            renderOrder={0}
             raycast={NO_RAYCAST}
           />
         );
       })}
+      {barrelBodyPlacements.map((placement) => (
+        <mesh
+          key={`rainbarrel-body-${placement.yardSlot}`}
+          geometry={placement.geometry}
+          position={[placement.worldPosition.x, placement.worldPosition.y, placement.worldPosition.z]}
+          // Water and Body are both transparent + depthWrite=false, with
+          // near-coincident pivots — three.js's transparent-pass sort
+          // (painterSortStable, see three.module.js) falls through
+          // renderOrder first and only breaks ties by z when renderOrder
+          // matches. Left at the default (both 0), the z-tiebreak was
+          // landing with Water painted after Body on every frame, so
+          // Water's own near-opaque blue simply overwrote Body's pixels
+          // regardless of Body's own opacity — which is why raising
+          // RAIN_BARREL_BODY_OVERLAY_OPACITY did nothing visible. Forcing
+          // Body's renderOrder above Water's guarantees Body always paints
+          // last, so its translucent wall blends over the water rather
+          // than the other way around.
+          renderOrder={1}
+          raycast={NO_RAYCAST}
+        >
+          <meshStandardMaterial
+            color={placement.color}
+            roughness={placement.roughness}
+            transparent
+            opacity={RAIN_BARREL_BODY_OVERLAY_OPACITY}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
       {spigotPlacements.map((placement) => (
         <mesh
           key={placement.nodeName}
