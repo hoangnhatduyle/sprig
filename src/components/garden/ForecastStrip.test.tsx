@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ForecastStrip } from "./ForecastStrip";
 import type { WeatherDayView } from "@/domain/weather/weather-service";
@@ -76,5 +76,25 @@ describe("ForecastStrip", () => {
     const forecast = [day({ isSnowDay: true })];
     render(<ForecastStrip forecast={forecast} />);
     expect(screen.getByText("Snow")).toBeInTheDocument();
+  });
+
+  it("defaults to the card view and switches to the chart view on toggle", () => {
+    const forecast = [day()];
+    render(<ForecastStrip forecast={forecast} />);
+
+    expect(document.getElementById("forecast-view-card-panel")).toBeInTheDocument();
+    expect(document.getElementById("forecast-view-chart-panel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Chart" }));
+
+    expect(document.getElementById("forecast-view-chart-panel")).toBeInTheDocument();
+    expect(document.getElementById("forecast-view-card-panel")).not.toBeInTheDocument();
+    // The chart view carries the same condition label forward.
+    expect(screen.getByText("Clear")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Card" }));
+
+    expect(document.getElementById("forecast-view-card-panel")).toBeInTheDocument();
+    expect(document.getElementById("forecast-view-chart-panel")).not.toBeInTheDocument();
   });
 });
