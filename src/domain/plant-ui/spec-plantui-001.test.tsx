@@ -59,7 +59,7 @@ function makeBed(id: string, name: string, cells: SnapshotCell[]): SnapshotBed {
 // be reflected everywhere seed counts are shown.
 function workspaceSnapshot(beds: SnapshotBed[], seeds: InventoryPlant[] = PLANTS) {
   return {
-    garden: { beds, environment: TEST_ENVIRONMENT, rainBarrels: [] },
+    garden: { beds, environment: TEST_ENVIRONMENT, rainBarrels: [], irrigationSystems: [] },
     inventory: { seeds, yields: [] },
   };
 }

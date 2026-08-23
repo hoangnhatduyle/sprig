@@ -17,3 +17,5 @@ export class IrrigationSystemNotLinkedToAnyBedError extends IrrigationDomainErro
 export class ConcurrentModificationError extends IrrigationDomainError {}
 export class InvalidDailyStartTimeError extends IrrigationDomainError {}
 export class InvalidDurationMinutesError extends IrrigationDomainError {}
+export class InvalidRainSkipThresholdError extends IrrigationDomainError {}
+export class InvalidRainSkipLookbackDaysError extends IrrigationDomainError {}

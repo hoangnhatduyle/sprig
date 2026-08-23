@@ -22,7 +22,7 @@ export default async function Home() {
   // hitting the network (src/app/actions.ts's read actions do the same).
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [snapshot, inventory, journal, liveImageRows] = await Promise.all([
-    getGardenSnapshot(prisma),
+    getGardenSnapshot(prisma, { weatherSource: "REAL_API" }),
     getInventorySnapshot(prisma),
     getGardenJournal(prisma),
     listLiveImages(prisma),
@@ -52,6 +52,7 @@ export default async function Home() {
         initialBeds={snapshot.beds}
         initialEnvironment={snapshot.environment}
         initialRainBarrels={snapshot.rainBarrels}
+        initialIrrigationSystems={snapshot.irrigationSystems}
         initialPlants={inventory.seeds}
         initialInventory={inventory}
         initialJournal={journal}

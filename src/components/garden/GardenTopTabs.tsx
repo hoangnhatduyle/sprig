@@ -12,6 +12,7 @@ import { useState } from "react";
 import { InventoryPanel } from "@/components/inventory/InventoryPanel";
 import type { GardenJournal } from "@/domain/journal/journal-service";
 import type { InventorySnapshot } from "@/domain/plant-catalog/inventory-service";
+import { AppPanel } from "./AppPanel";
 import { ConditionsPanel } from "./ConditionsPanel";
 import { ForecastStrip } from "./ForecastStrip";
 import { JournalPanel } from "./JournalPanel";
@@ -37,6 +38,7 @@ const TABS = [
   { id: "simulation", label: "What-if Planner" },
   { id: "journal", label: "Journal" },
   { id: "trends", label: "Trends" },
+  { id: "app", label: "App" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -141,6 +143,9 @@ export function GardenTopTabs({ environment, inventory, beds, initialJournal, di
       </div>
       <div id="trends-panel" role="tabpanel" aria-labelledby="trends-tab" hidden={tab !== "trends"}>
         <TrendsPanel beds={beds} inventory={inventory} disabled={disabled} bare />
+      </div>
+      <div id="app-panel" role="tabpanel" aria-labelledby="app-tab" hidden={tab !== "app"}>
+        <AppPanel />
       </div>
     </section>
   );

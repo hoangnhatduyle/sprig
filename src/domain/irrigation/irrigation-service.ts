@@ -2,10 +2,15 @@ import type { PrismaClient } from "@prisma/client";
 import {
   InvalidDailyStartTimeError,
   InvalidDurationMinutesError,
+  InvalidRainSkipLookbackDaysError,
+  InvalidRainSkipThresholdError,
   IrrigationCycleTransitionError,
   IrrigationSystemNotLinkedToAnyBedError,
 } from "./errors";
 import { nextStatus } from "./irrigation-cycle-lifecycle";
+import { addUtcDays, getOrGenerateWeatherDay, normalizeToUtcMidnight } from "@/domain/weather/weather-service";
+import type { WeatherSourcePreference } from "@/domain/weather/weather-service";
+import { getGardenLocation } from "@/domain/lighting/garden-location";
 
 export interface CellWaterView {
   cellId: string;
@@ -105,6 +110,45 @@ function assertValidDurationMinutes(durationMinutes: number): void {
   }
 }
 
+function assertValidRainSkipThreshold(rainSkipThresholdMm: number): void {
+  if (!Number.isFinite(rainSkipThresholdMm) || rainSkipThresholdMm < 0) {
+    throw new InvalidRainSkipThresholdError(
+      `IrrigationSystem.rainSkipThresholdMm (${rainSkipThresholdMm}) must be a non-negative number.`,
+    );
+  }
+}
+
+function assertValidRainSkipLookbackDays(rainSkipLookbackDays: number): void {
+  if (!Number.isInteger(rainSkipLookbackDays) || rainSkipLookbackDays <= 0) {
+    throw new InvalidRainSkipLookbackDaysError(
+      `IrrigationSystem.rainSkipLookbackDays (${rainSkipLookbackDays}) must be a positive integer.`,
+    );
+  }
+}
+
+// Sums recorded/forecast precipitation (NC-SPRIG-IRRIGATION-RAIN-SKIP) over
+// the last `lookbackDays` days including today, via the same idempotent
+// getOrGenerateWeatherDay cache catch-up-service.ts already relies on for
+// its own needs — a day already cached (by this call or an earlier one) is
+// never regenerated or refetched (weather-service.ts's own contract), so
+// this is safe to call on every tick without hammering Open-Meteo.
+async function recentRainfallMm(
+  prisma: PrismaClient,
+  now: Date,
+  lookbackDays: number,
+  weatherSource: WeatherSourcePreference,
+): Promise<number> {
+  const location = await getGardenLocation(prisma);
+  const today = normalizeToUtcMidnight(now);
+  let total = 0;
+  for (let i = 0; i < lookbackDays; i += 1) {
+    const day = addUtcDays(today, -i);
+    const weather = await getOrGenerateWeatherDay(prisma, location, day, weatherSource);
+    total += weather.precipitationMm;
+  }
+  return total;
+}
+
 // The automatic driver behind NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL: a
 // caller (the REAL-mode viewer's clock tick, in a future spec) invokes this
 // on every tick with the current simulated/real time. No separate "start"
@@ -131,11 +175,22 @@ function assertValidDurationMinutes(durationMinutes: number): void {
 // (correctly transactional) re-check — which here means "someone else's
 // tick already made this transition," not a real failure, so it resolves
 // to "noop" rather than propagating to whatever's driving the clock.
+//
+// v0.2.0 (NC-SPRIG-IRRIGATION-PAUSE-RESPECTED / NC-SPRIG-IRRIGATION-RAIN-SKIP):
+// `enabled: false` and rain-skip both only gate the IDLE branch below — a
+// cycle already RUNNING always finishes via the branch above regardless of
+// either setting, so disabling/rain never strands a system mid-cycle.
+// Neither creates a persisted "skipped" record: a gated window is just
+// `continue`d past without a run, so it's re-evaluated fresh on the next
+// tick, and a later same-day window (e.g. 17:00 after 08:00 was skipped)
+// still gets its own independent check within this same call.
 export async function maybeTriggerDailyCycle(
   prisma: PrismaClient,
   systemId: string,
   now: Date,
+  options: { weatherSource?: WeatherSourcePreference } = {},
 ): Promise<"started" | "ended" | "noop"> {
+  const weatherSource: WeatherSourcePreference = options.weatherSource ?? "PROCEDURAL";
   const system = await prisma.irrigationSystem.findUniqueOrThrow({ where: { id: systemId } });
   assertValidDurationMinutes(system.durationMinutes);
 
@@ -181,16 +236,28 @@ export async function maybeTriggerDailyCycle(
     const runForWindow = await prisma.irrigationRun.findFirst({
       where: { systemId, startedAt: { gte: windowStart } },
     });
-    if (!runForWindow) {
-      try {
-        await startCycle(prisma, systemId, now);
-        return "started";
-      } catch (error) {
-        if (error instanceof IrrigationCycleTransitionError) {
-          return "noop";
-        }
-        throw error;
+    if (runForWindow) {
+      continue;
+    }
+    if (!system.enabled) {
+      continue;
+    }
+    if (system.rainSkipEnabled) {
+      assertValidRainSkipThreshold(system.rainSkipThresholdMm);
+      assertValidRainSkipLookbackDays(system.rainSkipLookbackDays);
+      const rainfallMm = await recentRainfallMm(prisma, now, system.rainSkipLookbackDays, weatherSource);
+      if (rainfallMm >= system.rainSkipThresholdMm) {
+        continue;
       }
+    }
+    try {
+      await startCycle(prisma, systemId, now);
+      return "started";
+    } catch (error) {
+      if (error instanceof IrrigationCycleTransitionError) {
+        return "noop";
+      }
+      throw error;
     }
   }
   return "noop";
@@ -233,4 +300,78 @@ export function applySimulationWater(
 ): CellWaterView[] {
   const watered = new Set(wateredCellIds);
   return baseline.map((cell) => (watered.has(cell.cellId) ? { ...cell, wet: true } : cell));
+}
+
+// AC-16: user-editable settings that take effect on the next
+// maybeTriggerDailyCycle check — no restart needed, since that function
+// always reads the row fresh. Validates loudly (same precedent as
+// assertValidDurationMinutes) rather than silently clamping a bad value.
+export interface IrrigationSettingsPatch {
+  enabled?: boolean;
+  rainSkipEnabled?: boolean;
+  rainSkipThresholdMm?: number;
+  rainSkipLookbackDays?: number;
+}
+
+export async function updateIrrigationSettings(
+  prisma: PrismaClient,
+  systemId: string,
+  patch: IrrigationSettingsPatch,
+): Promise<void> {
+  if (patch.rainSkipThresholdMm !== undefined) {
+    assertValidRainSkipThreshold(patch.rainSkipThresholdMm);
+  }
+  if (patch.rainSkipLookbackDays !== undefined) {
+    assertValidRainSkipLookbackDays(patch.rainSkipLookbackDays);
+  }
+  await prisma.irrigationSystem.update({
+    where: { id: systemId },
+    data: {
+      enabled: patch.enabled,
+      rainSkipEnabled: patch.rainSkipEnabled,
+      rainSkipThresholdMm: patch.rainSkipThresholdMm,
+      rainSkipLookbackDays: patch.rainSkipLookbackDays,
+    },
+  });
+}
+
+// Read model for the settings UI (IrrigationSettingsPanel.tsx) — includes
+// recentRainfallMm so the panel can explain *why* the next window would or
+// wouldn't be skipped, without the UI re-deriving the rain-skip math itself.
+export interface SnapshotIrrigationSystem {
+  id: string;
+  bedNames: string[];
+  dailyStartTimes: string[];
+  durationMinutes: number;
+  status: "IDLE" | "RUNNING";
+  enabled: boolean;
+  rainSkipEnabled: boolean;
+  rainSkipThresholdMm: number;
+  rainSkipLookbackDays: number;
+  recentRainfallMm: number;
+}
+
+export async function getIrrigationSystemsView(
+  prisma: PrismaClient,
+  now: Date,
+  options: { weatherSource?: WeatherSourcePreference } = {},
+): Promise<SnapshotIrrigationSystem[]> {
+  const weatherSource: WeatherSourcePreference = options.weatherSource ?? "PROCEDURAL";
+  const systems = await prisma.irrigationSystem.findMany({
+    include: { beds: { select: { name: true } } },
+  });
+  return Promise.all(
+    systems.map(async (system) => ({
+      id: system.id,
+      bedNames: system.beds.map((bed) => bed.name),
+      dailyStartTimes: system.dailyStartTimes,
+      durationMinutes: system.durationMinutes,
+      status: system.status,
+      enabled: system.enabled,
+      rainSkipEnabled: system.rainSkipEnabled,
+      rainSkipThresholdMm: system.rainSkipThresholdMm,
+      rainSkipLookbackDays: system.rainSkipLookbackDays,
+      recentRainfallMm: await recentRainfallMm(prisma, now, system.rainSkipLookbackDays, weatherSource),
+    })),
+  );
 }

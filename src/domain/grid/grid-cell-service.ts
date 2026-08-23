@@ -17,8 +17,14 @@ import { getCurrentSimTime } from "@/domain/growth/sim-clock-service";
 import { getGardenLocation } from "@/domain/lighting/garden-location";
 import { computePhase, computeSunPosition, computeSunTimes } from "@/domain/lighting/sun-times";
 import type { DayNightPhase } from "@/domain/lighting/day-night-lifecycle";
-import { getForecastView, getWeatherDayView, type WeatherDayView } from "@/domain/weather/weather-service";
+import {
+  getForecastView,
+  getWeatherDayView,
+  type WeatherDayView,
+  type WeatherSourcePreference,
+} from "@/domain/weather/weather-service";
 import { estimateEvapotranspirationDisplayMm } from "@/domain/soil/water-bucket-service";
+import { getIrrigationSystemsView, type SnapshotIrrigationSystem } from "@/domain/irrigation/irrigation-service";
 import { companionEffectsForSpecies, type CompanionEffectKind } from "@/domain/ecology/companion-catalog";
 import { getFallbackSpeciesProfile, guessSpeciesKey } from "@/domain/growth/species-catalog";
 
@@ -604,6 +610,7 @@ export interface GardenSnapshot {
   beds: SnapshotBed[];
   environment: GardenEnvironmentView;
   rainBarrels: SnapshotRainBarrel[];
+  irrigationSystems: SnapshotIrrigationSystem[];
 }
 
 // Which effect kinds a planting at `index` receives from every OTHER
@@ -642,7 +649,7 @@ function companionEffectsForCell(
 // current time; only ever overridden by tests.
 export async function getGardenSnapshot(
   prisma: PrismaClient,
-  options?: { at?: Date },
+  options?: { at?: Date; weatherSource?: WeatherSourcePreference },
 ): Promise<GardenSnapshot> {
   const [beds, rainBarrels, clock, location] = await Promise.all([
     prisma.bed.findMany({
@@ -685,6 +692,9 @@ export async function getGardenSnapshot(
   const phase = computePhase(location, clock.simTime);
   const weather = await getWeatherDayView(prisma, clock.simTime);
   const forecast = await getForecastView(prisma, clock.simTime);
+  const irrigationSystems = await getIrrigationSystemsView(prisma, clock.simTime, {
+    weatherSource: options?.weatherSource,
+  });
   // A planting's speciesProfile can be null (onDelete: SetNull on
   // Plant.speciesProfileId) — mirrors the fallback already applied in
   // catch-up-service.ts and whatif-projection-service.ts so the 3D viewer
@@ -815,6 +825,7 @@ export async function getGardenSnapshot(
       catchmentAreaSqFt: barrel.catchmentAreaSqFt,
       status: barrel.status,
     })),
+    irrigationSystems,
   };
 }
 

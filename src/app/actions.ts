@@ -55,11 +55,18 @@ import { applyFungicideToCell } from "@/domain/disease/disease-action-service";
 import { applyPesticideToBed, releasePredatorsToBed } from "@/domain/pests/pest-action-service";
 import { InvalidPestActionAmountError, UnknownPestKeyError, UnknownPredatorKeyError } from "@/domain/pests/errors";
 import { addWater, drawWater, updateCatchmentArea } from "@/domain/irrigation/rain-barrel-service";
-import { ensureRealIrrigationSystemsSeeded, maybeTriggerDailyCycle } from "@/domain/irrigation/irrigation-service";
+import {
+  ensureRealIrrigationSystemsSeeded,
+  maybeTriggerDailyCycle,
+  updateIrrigationSettings,
+  type IrrigationSettingsPatch,
+} from "@/domain/irrigation/irrigation-service";
 import {
   ConcurrentModificationError as RainBarrelConcurrentModificationError,
   InsufficientWaterError,
   InvalidCatchmentAreaError,
+  InvalidRainSkipLookbackDaysError,
+  InvalidRainSkipThresholdError,
   InvalidWaterAmountError,
 } from "@/domain/irrigation/errors";
 import {
@@ -201,7 +208,11 @@ async function triggerDueIrrigationCycles(now: Date): Promise<void> {
   await ensureRealIrrigationSystemsSeeded(prisma);
   const systems = await prisma.irrigationSystem.findMany({ select: { id: true } });
   for (const system of systems) {
-    while ((await maybeTriggerDailyCycle(prisma, system.id, now)) !== "noop") {
+    // REAL_API here, not maybeTriggerDailyCycle's own PROCEDURAL default —
+    // same "every real app entry point opts into real weather explicitly"
+    // convention catchUpGrowth's calls below already follow, now also
+    // driving rain-skip's recent-rainfall check.
+    while ((await maybeTriggerDailyCycle(prisma, system.id, now, { weatherSource: "REAL_API" })) !== "noop") {
       // keep advancing this system's cycle until it's caught up to `now`.
     }
   }
@@ -223,7 +234,7 @@ export async function refreshGardenSnapshotAction(): Promise<GardenSnapshot> {
   // fetch or hitting the network. Every real app entry point opts into real
   // weather explicitly instead of the shared default changing under them.
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
-  return getGardenSnapshot(prisma);
+  return getGardenSnapshot(prisma, { weatherSource: "REAL_API" });
 }
 
 export interface InventoryAssignmentTarget extends CellTarget {
@@ -240,7 +251,7 @@ export async function refreshWorkspaceAction(): Promise<WorkspaceSnapshot> {
   await triggerDueIrrigationCycles(new Date());
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [garden, inventory] = await Promise.all([
-    getGardenSnapshot(prisma),
+    getGardenSnapshot(prisma, { weatherSource: "REAL_API" }),
     getInventorySnapshot(prisma),
   ]);
   return { garden, inventory };
@@ -310,6 +321,33 @@ export async function updateRainBarrelCatchmentAreaAction(
     return { ok: true };
   } catch (error: unknown) {
     return { ok: false, error: describeRainBarrelError(error) };
+  }
+}
+
+function describeIrrigationSettingsError(error: unknown): string {
+  if (error instanceof InvalidRainSkipThresholdError || error instanceof InvalidRainSkipLookbackDaysError) {
+    return error.message;
+  }
+  console.error("[IRRIGATION] unexpected irrigation settings error:", error);
+  return "Something went wrong. Please try again.";
+}
+
+// AC-16: settings take effect on the next scheduled-window check — no
+// separate "apply" step needed, since maybeTriggerDailyCycle always reads
+// the row fresh (same pattern updateRainBarrelCatchmentAreaAction above
+// already follows for rain barrels).
+export async function updateIrrigationSettingsAction(
+  systemId: string,
+  settings: IrrigationSettingsPatch,
+): Promise<ActionResult> {
+  if (typeof systemId !== "string" || !systemId || typeof settings !== "object" || settings === null) {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    await updateIrrigationSettings(prisma, systemId, settings);
+    return { ok: true };
+  } catch (error: unknown) {
+    return { ok: false, error: describeIrrigationSettingsError(error) };
   }
 }
 

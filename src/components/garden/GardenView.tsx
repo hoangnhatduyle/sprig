@@ -43,6 +43,7 @@ import { CellPicker } from "./CellPicker";
 import { GardenGrid } from "./GardenGrid";
 import { GardenSummary } from "./GardenSummary";
 import { GardenTopTabs } from "./GardenTopTabs";
+import { IrrigationSettingsPanel } from "./IrrigationSettingsPanel";
 import { LiveImageGallery } from "./LiveImageGallery";
 import { NeedsAttentionBanner } from "./NeedsAttentionBanner";
 import { RainBarrelPanel } from "./RainBarrelPanel";
@@ -53,6 +54,7 @@ import type {
   SelectedCell,
   SnapshotBed,
   SnapshotCell,
+  SnapshotIrrigationSystem,
   SnapshotRainBarrel,
 } from "./types";
 
@@ -81,6 +83,7 @@ export interface GardenViewProps {
   initialBeds: SnapshotBed[];
   initialEnvironment: GardenEnvironment;
   initialRainBarrels?: SnapshotRainBarrel[];
+  initialIrrigationSystems?: SnapshotIrrigationSystem[];
   initialPlants: PlantOption[];
   initialInventory?: InventorySnapshot;
   initialJournal?: GardenJournal;
@@ -140,6 +143,7 @@ export function GardenView({
   initialBeds,
   initialEnvironment,
   initialRainBarrels,
+  initialIrrigationSystems,
   initialPlants,
   initialInventory,
   initialJournal,
@@ -151,6 +155,9 @@ export function GardenView({
   const [beds, setBeds] = useState<SnapshotBed[]>(initialBeds);
   const [environment, setEnvironment] = useState<GardenEnvironment>(initialEnvironment);
   const [rainBarrels, setRainBarrels] = useState<SnapshotRainBarrel[]>(initialRainBarrels ?? []);
+  const [irrigationSystems, setIrrigationSystems] = useState<SnapshotIrrigationSystem[]>(
+    initialIrrigationSystems ?? [],
+  );
   const [inventory, setInventory] = useState<InventorySnapshot>(
     initialInventory ?? { seeds: initialPlants as InventoryPlant[], yields: [] },
   );
@@ -442,6 +449,7 @@ export function GardenView({
     setBeds(snapshot.garden.beds);
     setEnvironment(snapshot.garden.environment);
     setRainBarrels(snapshot.garden.rainBarrels);
+    setIrrigationSystems(snapshot.garden.irrigationSystems);
     setInventory(snapshot.inventory);
     if (selectedCell) {
       const bed = snapshot.garden.beds.find((item) => item.id === selectedCell.bedId);
@@ -622,7 +630,10 @@ export function GardenView({
         )}
         </div>
         <div id="rainBarrels-panel" role="tabpanel" aria-labelledby="rainBarrels-tab" hidden={leftTab !== "rainBarrels"}>
-          <RainBarrelPanel rainBarrels={rainBarrels} disabled={isSubmitting} onChanged={refreshAll} />
+          <div className="flex flex-col gap-4">
+            <IrrigationSettingsPanel irrigationSystems={irrigationSystems} disabled={isSubmitting} onChanged={refreshAll} />
+            <RainBarrelPanel rainBarrels={rainBarrels} disabled={isSubmitting} onChanged={refreshAll} />
+          </div>
         </div>
         <div id="liveImages-panel" role="tabpanel" aria-labelledby="liveImages-tab" hidden={leftTab !== "liveImages"}>
           <LiveImageGallery

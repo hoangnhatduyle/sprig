@@ -1,5 +1,5 @@
 id: SPEC-IRRIGATION-001
-version: 0.1.0
+version: 0.2.0
 kind: domain
 title: Automated Irrigation & Rain Barrel Water System
 status: draft
@@ -9,15 +9,19 @@ context_and_scope:
     - Automatic trigger of that daily cycle in REAL view mode as simulated/real time crosses the 08:00 window, with no user action required.
     - A manual per-cell water override available only in SIMULATION mode, applied as an instant visual state change (dry to wet soil), not a gradual moisture-decay simulation.
     - Rain barrel(s) modeled as a water source/capacity constraint feeding the simulation; count, capacity, and plumbing topology are assumptions pending user confirmation, not documented facts.
+    - "Rain-aware skip: a real smart irrigation controller with a rain sensor doesn't water when it's already rained enough. IrrigationSystem now models that — when rainSkipEnabled and real recorded/forecast rainfall (Open-Meteo, the same source SPEC-GROWTH-002's soil-moisture model already depends on) over the last rainSkipLookbackDays days meets or exceeds rainSkipThresholdMm, a due daily window is skipped: no IrrigationRun is created and no cells are marked wet for it."
+    - "Manual pause: IrrigationSystem.enabled lets a user turn the automatic daily cycle off entirely (e.g. while doing manual garden work), independent of rain-skip. Disabling blocks new cycle starts but never interrupts a cycle already RUNNING."
+    - User-editable irrigation settings (enabled, rainSkipEnabled, rainSkipThresholdMm, rainSkipLookbackDays) surfaced in the garden UI, taking effect on the next scheduled-window check (no restart required).
   out_of_scope:
-    - Real weather/rain/cloud data driving barrel fill or irrigation timing (phase two+; only the fixed 08:00 wall-clock schedule is in scope for must-have).
     - Soil moisture decay simulation over time (a distinct 'moisture' concept, deferred, separate from 'water applied').
-    - Live hardware sensors (real soil moisture probes, real flow meters).
+    - Live hardware sensors (real soil moisture probes, real flow meters) — rain-skip reads Open-Meteo data, not a physical rain sensor.
     - Visually distinguishing 'actively being watered' (hose flowing) from 'recently watered, hose off' — both render as the same wet-soil visual for must-have.
-  external_dependencies: []
+    - Persisting a "this window was skipped for rain" audit record — a skip is a derived, in-the-moment read (recomputed each check from recent WeatherDay rows), not a logged event.
+  external_dependencies:
+    - "Open-Meteo (via RealWeatherProvider, src/domain/weather/real-weather-provider.ts) for rain-skip's recent-rainfall lookup — the same dependency SPEC-GROWTH-002's soil-moisture model already has, now also read by this spec's irrigation-timing decision."
   shared_schemas:
     - RainBarrel { id, capacity_gallons, current_gallons, linked_downspout } — capacity_gallons (50gal) and linked_downspout are assumptions, not documented facts; no page in the source document shows rain barrel plumbing, and only one barrel is visible in the site photo (p.27). Likely a SEPARATE water source from the automated irrigation manifold (which appears spigot-fed), not plumbed into it.
-    - "IrrigationSystem { id, bed_ids: [bed1_id, bed2_id], daily_start_time: \"08:00\", duration_minutes: 10, coverage: ALL_CELLS, water_source: SPIGOT_ASSUMED } — physically a rigid PVC manifold with a shut-off valve at each bed's inner corner joined by a ground-level pipe between the beds; covers all cells in both beds equally; drives automatic watering in REAL view mode, distinct from manual per-cell watering in SIMULATION mode."
+    - "IrrigationSystem { id, bed_ids: [bed1_id, bed2_id], daily_start_time: \"08:00\", duration_minutes: 10, coverage: ALL_CELLS, water_source: SPIGOT_ASSUMED, enabled: true, rain_skip_enabled: true, rain_skip_threshold_mm: 6, rain_skip_lookback_days: 2 } — physically a rigid PVC manifold with a shut-off valve at each bed's inner corner joined by a ground-level pipe between the beds; covers all cells in both beds equally; drives automatic watering in REAL view mode, distinct from manual per-cell watering in SIMULATION mode. enabled/rain_skip_* (v0.2.0) gate whether a due window actually starts a cycle."
 state_machines:
   - name: Rain barrel water level
     states:
@@ -81,9 +85,12 @@ negative_constraints:
   - id: NC-SPRIG-MANUAL-WATER-NOT-A-SUBSTITUTE
     message: Manual per-cell watering in SIMULATION mode MUST NOT be presented as replacing or overriding the real daily irrigation baseline's record; it is an experimental overlay, and exiting SIMULATION mode MUST restore the REAL baseline (including the automatic 8 AM cycle), not the manually-watered state.
     severity: medium
-  - id: NC-SPRIG-NO-WEATHER-API-IN-MUST-HAVE
-    message: The must-have build MUST NOT depend on a live weather/rain/cloud data source; only real sunrise/sunset (sun-position) data is an in-scope external dependency, and it belongs to the LIGHT spec, not this one.
-    severity: low
+  - id: NC-SPRIG-IRRIGATION-RAIN-SKIP
+    message: When rainSkipEnabled is true, a scheduled daily window whose recent rainfall (summed over rainSkipLookbackDays, including today) meets or exceeds rainSkipThresholdMm MUST be skipped — no IrrigationRun created, no cells marked WET — rather than watering regardless of real conditions.
+    severity: medium
+  - id: NC-SPRIG-IRRIGATION-PAUSE-RESPECTED
+    message: When IrrigationSystem.enabled is false, no new daily cycle MAY start; a cycle already RUNNING MUST still be allowed to finish and transition back to IDLE normally — disabling MUST NOT strand a system mid-cycle.
+    severity: medium
 acceptance_criteria:
   - id: AC-4
     given: two rain barrels modeled at 50 gallons capacity each
@@ -109,6 +116,21 @@ acceptance_criteria:
     given: SIMULATION mode with cells manually watered by the user
     when: the user exits back to REAL view mode
     then: the viewer shows the REAL baseline (including whatever the automatic 8 AM cycle produced), not the manually-watered SIMULATION state
+    invariant: false
+  - id: AC-14
+    given: an IrrigationSystem with rainSkipEnabled and rainSkipThresholdMm of 6mm, and 8mm of recorded rainfall over the last rainSkipLookbackDays days
+    when: a scheduled daily window becomes due
+    then: no IrrigationRun is created and no cells are marked WET for that window
+    invariant: false
+  - id: AC-15
+    given: an IrrigationSystem with enabled set to false
+    when: a scheduled daily window becomes due
+    then: no new cycle starts; if a cycle was already RUNNING before enabled was set to false, it still transitions back to IDLE normally once its duration elapses
+    invariant: false
+  - id: AC-16
+    given: a user editing IrrigationSystem settings (enabled, rainSkipEnabled, rainSkipThresholdMm, rainSkipLookbackDays) in the garden UI
+    when: the settings are saved
+    then: the next scheduled-window check uses the new values immediately, with no restart or redeploy required
     invariant: false
 depends_on:
   - SPEC-GRID-001

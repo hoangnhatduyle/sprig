@@ -281,8 +281,17 @@ model IrrigationSystem {
   durationMinutes Int                    @default(10)
   waterSource     String                 @default("SPIGOT_ASSUMED")
   status          IrrigationSystemStatus @default(IDLE)
-  beds            Bed[]                  @relation("IrrigationSystemBeds")
-  runs            IrrigationRun[]
+  // v0.2.0 (NC-SPRIG-IRRIGATION-PAUSE-RESPECTED / NC-SPRIG-IRRIGATION-RAIN-SKIP):
+  // enabled is a manual pause, independent of rain-skip. rainSkipThresholdMm
+  // defaults to 6mm, matching one cycle's own delivery (irrigationDeliveryMm(10)
+  // in water-bucket-service.ts) — "skip if rain alone already did what a cycle
+  // would've done." rainSkipLookbackDays sums today + yesterday by default.
+  enabled              Boolean         @default(true)
+  rainSkipEnabled      Boolean         @default(true)
+  rainSkipThresholdMm  Float           @default(6)
+  rainSkipLookbackDays Int             @default(2)
+  beds                 Bed[]           @relation("IrrigationSystemBeds")
+  runs                 IrrigationRun[]
 }
 
 // Append-only daily-cycle log backing NC-SPRIG-IRRIGATION-AUTOMATIC-IN-REAL /

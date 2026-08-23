@@ -18,13 +18,17 @@ export type WeatherSourcePreference = WeatherSource;
 const procedural = new ProceduralWeatherProvider();
 const real = new RealWeatherProvider();
 
-function normalizeToUtcMidnight(date: Date): Date {
+// Exported so other domains that need day-bucket date math on top of
+// WeatherDay rows (irrigation-service.ts's rain-skip lookback) don't
+// duplicate it — the same "reuse, don't reimplement" precedent this file's
+// own callers already follow for getOrGenerateWeatherDay itself.
+export function normalizeToUtcMidnight(date: Date): Date {
   const normalized = new Date(date);
   normalized.setUTCHours(0, 0, 0, 0);
   return normalized;
 }
 
-function addUtcDays(date: Date, days: number): Date {
+export function addUtcDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;

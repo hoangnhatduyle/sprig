@@ -1,5 +1,5 @@
 spec_id: SPEC-IRRIGATION-001
-generated_at: 2026-07-27T20:18:34.217Z
+generated_at: 2026-08-23T14:20:48.802Z
 cases:
   - id: T-SPEC-IRRIGATION-001-AC-AC_4
     kind: acceptance
@@ -25,6 +25,21 @@ cases:
     kind: acceptance
     traces_to: SPEC-IRRIGATION-001#AC-13
     assertion: given SIMULATION mode with cells manually watered by the user, when the user exits back to REAL view mode, then the viewer shows the REAL baseline (including whatever the automatic 8 AM cycle produced), not the manually-watered SIMULATION state
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-AC-AC_14
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-14
+    assertion: given an IrrigationSystem with rainSkipEnabled and rainSkipThresholdMm of 6mm, and 8mm of recorded rainfall over the last rainSkipLookbackDays days, when a scheduled daily window becomes due, then no IrrigationRun is created and no cells are marked WET for that window
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-AC-AC_15
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-15
+    assertion: given an IrrigationSystem with enabled set to false, when a scheduled daily window becomes due, then no new cycle starts; if a cycle was already RUNNING before enabled was set to false, it still transitions back to IDLE normally once its duration elapses
+    invariant: false
+  - id: T-SPEC-IRRIGATION-001-AC-AC_16
+    kind: acceptance
+    traces_to: SPEC-IRRIGATION-001#AC-16
+    assertion: given a user editing IrrigationSystem settings (enabled, rainSkipEnabled, rainSkipThresholdMm, rainSkipLookbackDays) in the garden UI, when the settings are saved, then the next scheduled-window check uses the new values immediately, with no restart or redeploy required
     invariant: false
   - id: T-SPEC-IRRIGATION-001-FORBID-Rain_barrel_water_level_EMPTY_OVERFLOWING
     kind: forbidden-transition
