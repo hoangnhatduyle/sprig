@@ -281,6 +281,30 @@ export async function ensureRealIrrigationSystemsSeeded(prisma: PrismaClient): P
   }
 }
 
+// The single "derive on read" entry point for advancing every real
+// IrrigationSystem's IDLE/RUNNING cycle up to `now` (NC-SPRIG-IRRIGATION-
+// AUTOMATIC-IN-REAL) — lives here, not duplicated in every Next.js entry
+// point that reads a garden snapshot, since actions.ts's server actions and
+// page.tsx's initial SSR load both need the exact same seed-then-catch-up
+// behavior before getGardenSnapshot/getIrrigationSystemsView can reflect
+// reality. One maybeTriggerDailyCycle call can only hop one transition (see
+// that function's own doc comment), so this loops per system until it
+// reports "noop" — catching a system up through however many windows/cycles
+// it missed since the last read.
+export async function triggerDueIrrigationCycles(
+  prisma: PrismaClient,
+  now: Date,
+  options: { weatherSource?: WeatherSourcePreference } = {},
+): Promise<void> {
+  await ensureRealIrrigationSystemsSeeded(prisma);
+  const systems = await prisma.irrigationSystem.findMany({ select: { id: true } });
+  for (const system of systems) {
+    while ((await maybeTriggerDailyCycle(prisma, system.id, now, options)) !== "noop") {
+      // keep advancing this system's cycle until it's caught up to `now`.
+    }
+  }
+}
+
 // The REAL baseline read model: one row per grid cell, sourced directly
 // from the persisted waterState column (never from a SIMULATION overlay).
 export async function getWaterSnapshot(prisma: PrismaClient): Promise<CellWaterView[]> {

@@ -56,8 +56,7 @@ import { applyPesticideToBed, releasePredatorsToBed } from "@/domain/pests/pest-
 import { InvalidPestActionAmountError, UnknownPestKeyError, UnknownPredatorKeyError } from "@/domain/pests/errors";
 import { addWater, drawWater, updateCatchmentArea } from "@/domain/irrigation/rain-barrel-service";
 import {
-  ensureRealIrrigationSystemsSeeded,
-  maybeTriggerDailyCycle,
+  triggerDueIrrigationCycles,
   updateIrrigationSettings,
   type IrrigationSettingsPatch,
 } from "@/domain/irrigation/irrigation-service";
@@ -198,37 +197,22 @@ export async function removePlantingAction(target: CellTarget): Promise<ActionRe
   }
 }
 
-// Advances every real IrrigationSystem's IDLE/RUNNING cycle up to `now`,
-// same "derive on read" trigger point catchUpGrowth uses just below — one
-// call can only hop one transition (see maybeTriggerDailyCycle's own doc
-// comment), so this loops until a call reports "noop" for every system,
-// catching a system up through however many windows/cycles it missed since
-// the last read instead of advancing it one step per page load.
-async function triggerDueIrrigationCycles(now: Date): Promise<void> {
-  await ensureRealIrrigationSystemsSeeded(prisma);
-  const systems = await prisma.irrigationSystem.findMany({ select: { id: true } });
-  for (const system of systems) {
-    // REAL_API here, not maybeTriggerDailyCycle's own PROCEDURAL default —
-    // same "every real app entry point opts into real weather explicitly"
-    // convention catchUpGrowth's calls below already follow, now also
-    // driving rain-skip's recent-rainfall check.
-    while ((await maybeTriggerDailyCycle(prisma, system.id, now, { weatherSource: "REAL_API" })) !== "noop") {
-      // keep advancing this system's cycle until it's caught up to `now`.
-    }
-  }
-}
-
 // catchUpGrowth runs the growth engine's daily step for every simulated day
 // that's elapsed since the last read (src/domain/growth/catch-up-service.ts)
 // before the snapshot is computed — this is the "derive on read" trigger
 // point the architecture doc's §2 calls for, mirroring how the irrigation
 // domain's maybeTriggerDailyCycle is invoked on read rather than by a
-// background worker. triggerDueIrrigationCycles runs first so any
-// IrrigationRun rows it creates are visible to catchUpGrowth's own
-// irrigation-to-soil-moisture step.
+// background worker. triggerDueIrrigationCycles (irrigation-service.ts) runs
+// first so any IrrigationRun rows it creates are visible to catchUpGrowth's
+// own irrigation-to-soil-moisture step. Same call page.tsx's initial SSR
+// load makes — see that file's own comment on why both need it.
 export async function refreshGardenSnapshotAction(): Promise<GardenSnapshot> {
   const now = new Date();
-  await triggerDueIrrigationCycles(now);
+  // REAL_API here, not maybeTriggerDailyCycle's own PROCEDURAL default —
+  // same "every real app entry point opts into real weather explicitly"
+  // convention catchUpGrowth's own call just below already follows, now
+  // also driving rain-skip's recent-rainfall check.
+  await triggerDueIrrigationCycles(prisma, now, { weatherSource: "REAL_API" });
   // REAL_API here, not catchUpGrowth's own PROCEDURAL default — that
   // default is what lets the test suite call catchUpGrowth without mocking
   // fetch or hitting the network. Every real app entry point opts into real
@@ -248,7 +232,7 @@ export interface WorkspaceSnapshot {
 }
 
 export async function refreshWorkspaceAction(): Promise<WorkspaceSnapshot> {
-  await triggerDueIrrigationCycles(new Date());
+  await triggerDueIrrigationCycles(prisma, new Date(), { weatherSource: "REAL_API" });
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [garden, inventory] = await Promise.all([
     getGardenSnapshot(prisma, { weatherSource: "REAL_API" }),

@@ -1,25 +1,31 @@
 import { GardenView } from "@/components/garden/GardenView";
 import { getGardenSnapshot } from "@/domain/grid/grid-cell-service";
 import { catchUpGrowth } from "@/domain/growth/catch-up-service";
+import { triggerDueIrrigationCycles } from "@/domain/irrigation/irrigation-service";
 import { getGardenJournal } from "@/domain/journal/journal-service";
 import { getInventorySnapshot } from "@/domain/plant-catalog/inventory-service";
 import { listLiveImages } from "@/domain/live-images/live-image-service";
 import { prisma } from "@/lib/prisma";
 
-// This page runs a write (catchUpGrowth) on every load, so it must never be
-// statically prerendered — build-time execution would run that write against
-// whatever DATABASE_URL the build environment sees, and fail outright if
-// migrations haven't been applied there yet (as happened on Vercel).
+// This page runs writes (triggerDueIrrigationCycles, catchUpGrowth) on every
+// load, so it must never be statically prerendered — build-time execution
+// would run those writes against whatever DATABASE_URL the build environment
+// sees, and fail outright if migrations haven't been applied there yet (as
+// happened on Vercel).
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   // Mirrors refreshGardenSnapshotAction/refreshWorkspaceAction's own
   // catch-up-before-read order (src/app/actions.ts) so first paint never
   // shows a pre-simulation state — without this, environment.weather would
-  // be null until the user's first click-triggered refresh.
-  // REAL_API, not catchUpGrowth's own PROCEDURAL default: that default is
-  // what lets the test suite call catchUpGrowth without mocking fetch or
-  // hitting the network (src/app/actions.ts's read actions do the same).
+  // be null, and IrrigationSystem rows would never get seeded/advanced,
+  // until the user's first click-triggered refresh. triggerDueIrrigationCycles
+  // runs first so any IrrigationRun rows it creates are visible to
+  // catchUpGrowth's own irrigation-to-soil-moisture step.
+  // REAL_API, not either function's own PROCEDURAL default: that default is
+  // what lets the test suite call them without mocking fetch or hitting the
+  // network (src/app/actions.ts's read actions do the same).
+  await triggerDueIrrigationCycles(prisma, new Date(), { weatherSource: "REAL_API" });
   await catchUpGrowth(prisma, { weatherSource: "REAL_API" });
   const [snapshot, inventory, journal, liveImageRows] = await Promise.all([
     getGardenSnapshot(prisma, { weatherSource: "REAL_API" }),

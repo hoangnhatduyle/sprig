@@ -178,8 +178,11 @@ describe("NeedsAttentionBanner", () => {
       ],
     } as unknown as SnapshotBed;
     render(<NeedsAttentionBanner beds={[stressedBed]} plants={[]} onSelectCell={vi.fn()} />);
+    // Collapsed by default — the header's own count is visible immediately,
+    // and the per-cell list (with the bed name) only after expanding.
+    expect(screen.getByText(/1 critical/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /needs attention/i }));
     expect(screen.getByText(/Left Bed/)).toBeInTheDocument();
-    expect(screen.getByText(/critical/i)).toBeInTheDocument();
   });
 });
 
