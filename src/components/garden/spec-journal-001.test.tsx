@@ -149,7 +149,15 @@ describe("JournalPanel", () => {
 
 describe("NeedsAttentionBanner", () => {
   it("renders nothing when no bed has stressed, critical, or infected cells", () => {
-    const { container } = render(<NeedsAttentionBanner beds={BEDS} plants={[]} onSelectCell={vi.fn()} />);
+    const { container } = render(
+      <NeedsAttentionBanner
+        beds={BEDS}
+        plants={[]}
+        onSelectCell={vi.fn()}
+        onRefresh={vi.fn()}
+        onOpenIrrigationSettings={vi.fn()}
+      />,
+    );
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -177,7 +185,15 @@ describe("NeedsAttentionBanner", () => {
         },
       ],
     } as unknown as SnapshotBed;
-    render(<NeedsAttentionBanner beds={[stressedBed]} plants={[]} onSelectCell={vi.fn()} />);
+    render(
+      <NeedsAttentionBanner
+        beds={[stressedBed]}
+        plants={[]}
+        onSelectCell={vi.fn()}
+        onRefresh={vi.fn()}
+        onOpenIrrigationSettings={vi.fn()}
+      />,
+    );
     // Collapsed by default — the header's own count is visible immediately,
     // and the per-cell list (with the bed name) only after expanding.
     expect(screen.getByText(/1 critical/i)).toBeInTheDocument();

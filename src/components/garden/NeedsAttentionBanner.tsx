@@ -13,10 +13,11 @@
 // pickerPanelRef.scrollIntoView) rather than inventing a second one.
 
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Wrench } from "lucide-react";
 import type { AttentionCell } from "./bed-summary";
-import { summarizeBed } from "./bed-summary";
+import { groupAttentionCells, summarizeBed } from "./bed-summary";
 import { plantName } from "./plant-lookup";
+import { RemedyDialog, type RemedyDialogTarget } from "./RemedyDialog";
 import { FOCUS_RING, MIN_TOUCH_TARGET } from "./ui-constants";
 import type { PlantOption, SelectedCell, SnapshotBed } from "./types";
 
@@ -24,6 +25,8 @@ export interface NeedsAttentionBannerProps {
   beds: SnapshotBed[];
   plants: PlantOption[];
   onSelectCell: (target: SelectedCell) => void;
+  onRefresh: () => Promise<void>;
+  onOpenIrrigationSettings: () => void;
   bare?: boolean;
 }
 
@@ -56,9 +59,12 @@ export function NeedsAttentionBanner({
   beds,
   plants,
   onSelectCell,
+  onRefresh,
+  onOpenIrrigationSettings,
   bare = false,
 }: NeedsAttentionBannerProps) {
   const [expanded, setExpanded] = useState(false);
+  const [remedyTarget, setRemedyTarget] = useState<RemedyDialogTarget | null>(null);
   const rows = beds
     .map((bed) => ({ bed, stats: summarizeBed(bed) }))
     .filter(({ stats }) => stats.attentionCells.length > 0);
@@ -119,44 +125,91 @@ export function NeedsAttentionBanner({
         <ChevronIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
       </button>
       {expanded && (
-        <div id="needs-attention-list" className="flex flex-col gap-2.5">
+        <div id="needs-attention-list" className="flex flex-col gap-3">
           {rows.map(({ bed, stats }) => (
-            <div key={bed.id}>
+            <div key={bed.id} className="flex flex-col gap-2">
               <p
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-warning-text)" }}
               >
                 {bed.name}
               </p>
-              <ul className="flex flex-col gap-1">
-                {stats.attentionCells.map((attention) => (
-                  <li key={`${attention.cell.column}:${attention.cell.row}`}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onSelectCell({
-                          bedId: bed.id,
-                          bedName: bed.name,
-                          column: attention.cell.column,
-                          row: attention.cell.row,
-                          status: attention.cell.status,
-                          plantIds: attention.cell.plantIds,
-                          plantings: attention.cell.plantings,
-                          environment: attention.cell.environment,
-                          soilProfile: bed.soilProfile,
-                        })
-                      }
-                      className={`rounded text-left text-sm underline decoration-dotted underline-offset-2 hover:decoration-solid ${FOCUS_RING}`}
-                      style={{ color: "var(--color-warning-text)" }}
+              {groupAttentionCells(stats.attentionCells).map((group) => (
+                <div key={group.key} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warning-text)" }}>
+                      {group.label} ({group.cells.length})
+                    </p>
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        background: group.actionable ? "var(--color-accent-strong)" : "var(--color-surface-raised)",
+                        color: group.actionable ? "white" : "var(--color-text-muted)",
+                      }}
                     >
-                      {attentionCellLabel(attention, plants)}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      {group.actionable ? "fixable now" : "no in-app fix"}
+                    </span>
+                  </div>
+                  <ul className="flex flex-col gap-1">
+                    {group.cells.map((attention) => (
+                      <li key={`${attention.cell.column}:${attention.cell.row}`} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSelectCell({
+                              bedId: bed.id,
+                              bedName: bed.name,
+                              column: attention.cell.column,
+                              row: attention.cell.row,
+                              status: attention.cell.status,
+                              plantIds: attention.cell.plantIds,
+                              plantings: attention.cell.plantings,
+                              environment: attention.cell.environment,
+                              soilProfile: bed.soilProfile,
+                            })
+                          }
+                          className={`rounded text-left text-sm underline decoration-dotted underline-offset-2 hover:decoration-solid ${FOCUS_RING}`}
+                          style={{ color: "var(--color-warning-text)" }}
+                        >
+                          {attentionCellLabel(attention, plants)}
+                        </button>
+                        {attention.dominantStressDial && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRemedyTarget({
+                                bedId: bed.id,
+                                bedName: bed.name,
+                                column: attention.cell.column,
+                                row: attention.cell.row,
+                                dial: attention.dominantStressDial as string,
+                                hasActiveInfection: attention.hasActiveInfection,
+                              })
+                            }
+                            aria-label={`View fix for column ${attention.cell.column}, row ${attention.cell.row}`}
+                            className={`${FOCUS_RING} inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium`}
+                            style={{ borderColor: "var(--color-warning-text)", color: "var(--color-warning-text)" }}
+                          >
+                            <Wrench aria-hidden="true" className="h-3 w-3" />
+                            View fix
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           ))}
         </div>
+      )}
+      {remedyTarget && (
+        <RemedyDialog
+          target={remedyTarget}
+          onClose={() => setRemedyTarget(null)}
+          onApplied={onRefresh}
+          onOpenIrrigationSettings={onOpenIrrigationSettings}
+        />
       )}
     </Wrapper>
   );

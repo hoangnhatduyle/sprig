@@ -544,7 +544,13 @@ export function GardenView({
           disabled={isSubmitting}
           onChanged={refreshAll}
         />
-        <NeedsAttentionBanner beds={beds} plants={plants} onSelectCell={selectCell} />
+        <NeedsAttentionBanner
+          beds={beds}
+          plants={plants}
+          onSelectCell={selectCell}
+          onRefresh={refreshAll}
+          onOpenIrrigationSettings={() => setLeftTab("rainBarrels")}
+        />
     <div
       data-testid="garden-workspace"
       className="flex flex-col gap-8 xl:grid xl:grid-cols-[minmax(0,7fr)_minmax(30rem,13fr)] xl:items-start xl:gap-8 2xl:gap-10"

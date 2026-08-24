@@ -4,8 +4,9 @@
 // cells need attention" computation without duplicating it. Same
 // one-file-per-domain-concern convention as stress-display.ts/pest-display.ts.
 
-import { healthBand } from "./stress-display";
+import { healthBand, STRESS_DIAL_LABEL } from "./stress-display";
 import { MIN_DISPLAY_POPULATION, MIN_DISPLAY_SEVERITY } from "./pest-display";
+import { isDialActionable } from "./remedy-guidance";
 import type { SnapshotBed, SnapshotCell } from "./types";
 
 // One flagged cell plus why it was flagged — lets a caller like
@@ -15,6 +16,17 @@ import type { SnapshotBed, SnapshotCell } from "./types";
 export interface AttentionCell {
   cell: SnapshotCell;
   reasons: ("stressed" | "critical" | "infected")[];
+  // Carried straight from the growth engine's own dominant-dial read
+  // (stress-service.ts, via SnapshotCell.plantings[0].growth) so a caller
+  // like NeedsAttentionBanner/RemedyDialog can say *why* a cell is flagged
+  // without re-deriving it — same value CellPicker's StressBadge shows.
+  dominantStressDial: string | null;
+  // Whether this cell has a currently-active disease infection above the
+  // same MIN_DISPLAY_SEVERITY threshold used for the "infected" reason
+  // below — remedy-guidance.ts needs this to tell a pestDisease dial's
+  // disease-driven case (fungicide) apart from its pest-pressure-only case
+  // (no per-cell fix), since the dial itself can't disambiguate the two.
+  hasActiveInfection: boolean;
 }
 
 export interface BedStats {
@@ -63,12 +75,20 @@ export function summarizeBed(bed: SnapshotBed): BedStats {
         reasons.push("stressed");
       }
     }
-    if (cell.plantings.some((planting) => planting.infections.some((infection) => infection.severity >= MIN_DISPLAY_SEVERITY))) {
+    const hasActiveInfection = cell.plantings.some((planting) =>
+      planting.infections.some((infection) => infection.severity >= MIN_DISPLAY_SEVERITY),
+    );
+    if (hasActiveInfection) {
       infectedCells += 1;
       reasons.push("infected");
     }
     if (reasons.length > 0) {
-      attentionCells.push({ cell, reasons });
+      attentionCells.push({
+        cell,
+        reasons,
+        dominantStressDial: growth?.dominantStressDial ?? null,
+        hasActiveInfection,
+      });
     }
   }
 
@@ -95,4 +115,43 @@ export function summarizeBed(bed: SnapshotBed): BedStats {
     dominantPestKey: dominantPest?.pestKey ?? null,
     dominantPredatorKey: dominantPredator?.predatorKey ?? null,
   };
+}
+
+// One cause-cluster within a bed's attentionCells — lets NeedsAttentionBanner
+// collapse "23 cosmos cells, each its own line" into one "Drought stress
+// (23)" heading with the individual cells still listed (and clickable)
+// underneath, instead of a flat 60-line list with no structure.
+export interface AttentionCellGroup {
+  key: string;
+  label: string;
+  // True when at least one cell in the group has an in-app remedy
+  // (remedy-guidance.ts) — pestDisease groups can genuinely mix infected
+  // cells (fungicide available) with pest-pressure-only ones (none), so
+  // this is "worth checking", not "every cell here is one click away".
+  actionable: boolean;
+  cells: AttentionCell[];
+}
+
+// Preserves each cell's first-occurrence (row-major) order within its group
+// rather than re-sorting — grouping is purely a display collapse, not a
+// priority ranking.
+export function groupAttentionCells(attentionCells: AttentionCell[]): AttentionCellGroup[] {
+  const order: string[] = [];
+  const groups = new Map<string, AttentionCell[]>();
+  for (const attention of attentionCells) {
+    const key = attention.dominantStressDial ?? (attention.reasons.includes("infected") ? "infected" : "other");
+    const bucket = groups.get(key);
+    if (bucket) {
+      bucket.push(attention);
+    } else {
+      groups.set(key, [attention]);
+      order.push(key);
+    }
+  }
+  return order.map((key) => {
+    const cells = groups.get(key) ?? [];
+    const label = STRESS_DIAL_LABEL[key] ?? (key === "infected" ? "Infected" : "Needs attention");
+    const actionable = cells.some((attention) => isDialActionable(key, attention.hasActiveInfection));
+    return { key, label, actionable, cells };
+  });
 }

@@ -1,0 +1,65 @@
+id: SPEC-SURFACE-002
+version: 0.1.0
+kind: domain
+title: "Remedy Guidance for Stressed Cells (Phase B: Cause + Fix)"
+status: draft
+context_and_scope:
+  in_scope:
+    - Surfacing each attention cell's dominantStressDial (already computed by the growth engine, previously only shown after clicking into CellPicker) directly in the Needs Attention banner.
+    - Grouping a bed's attention cells by dominant dial (falling back to "infected" when the dial is null but the cell has an active infection) instead of a flat unlabeled list, with a per-group cell count and a fixable-now/no-in-app-fix tag.
+    - A per-cell RemedyDialog (opened via a "View fix" control on each banner line) that always shows real-world gardening steps for the cell's dial, so the guidance is useful whether or not the in-app action is also used.
+    - "Wiring a real in-app remedy action for the dials that already have a working server action to back one: drought -> waterCellAction, heat -> installConditionOverrideAction(SHADE_CLOTH), shade -> installConditionOverrideAction(GROW_LIGHT), nutrient -> applyFertilizerAction, pestDisease (with an active infection on the cell) -> applyFungicideAction, overwater -> navigate to the existing Irrigation Settings tab (no direct apply, since fixing overwatering means adjusting a schedule, not firing one action)."
+    - Disambiguating the pestDisease dial (Math.max(disease severity, pest pressure), lossy) per cell using the same active-infection check bed-summary.ts already computes for the "infected" reason.
+  out_of_scope:
+    - Building any new remedy mechanism for cold, wind, or transplantShock — verified nothing in src/app/actions.ts or src/domain/ addresses any of the three; those dials get real-world steps only, never a fake apply button.
+    - Automatic pest/predator matching or bed-level pesticide dosing from the dialog for a pestDisease cell with pest pressure but no active infection — routed to the existing Pest panel (What-if Planner tab) instead of guessing a predatorKey/pestKey pairing.
+    - Bulk/multi-cell remedy application — BulkActionBar already owns bulk watering separately; this spec is single-cell only.
+    - A shared/reusable Dialog component extraction — RemedyDialog is hand-rolled to the same role=dialog/aria-modal pattern GardenView.tsx's and AppPanel.tsx's existing confirm dialogs already use; unifying those three is a separate concern.
+  external_dependencies:
+    - src/app/actions.ts — waterCellAction, installConditionOverrideAction, applyFertilizerAction, applyFungicideAction (all pre-existing, none added by this spec).
+    - lucide-react — Wrench icon for the "View fix" control, same icon-vocabulary dependency SPEC-SURFACE-001 already established.
+  shared_schemas:
+    - "StressRemedy { headline, steps: string[], action: RemedyAction | null } — remedy-guidance.ts."
+    - "RemedyAction = {kind: water|shade-cloth|grow-light|fertilize|fungicide|open-irrigation} — the exact 6 in-app remedies this spec wires; every other dial resolves to action: null."
+    - "AttentionCell (bed-summary.ts) extended with dominantStressDial: string | null and hasActiveInfection: boolean."
+    - "AttentionCellGroup { key, label, actionable, cells: AttentionCell[] } — bed-summary.ts's groupAttentionCells()."
+state_machines: []
+negative_constraints:
+  - id: NC-SPRIG-SURFACE-REMEDY-NO-FAKE-BUTTON
+    message: RemedyDialog MUST NEVER render an apply/action button for a dial-and-cell combination with no real backing server action — specifically cold, wind, transplantShock (always), and pestDisease when the cell has no active infection. Those cases show real-world steps only.
+    severity: critical
+  - id: NC-SPRIG-SURFACE-REMEDY-STEPS-ALWAYS-SHOWN
+    message: RemedyDialog MUST always render its real-world steps list regardless of whether an in-app action exists — the dialog's primary job is real-garden guidance; the in-app button is a bonus mirror of it, never a replacement.
+    severity: high
+  - id: NC-SPRIG-SURFACE-REMEDY-CORRECT-PARAMS
+    message: Every wired remedy action MUST be called with the exact parameter shape its existing server action already expects (e.g. waterCellAction({bedId,column,row}), installConditionOverrideAction({bedId,kind,intensity})) — never a guessed or partial payload.
+    severity: high
+acceptance_criteria:
+  - id: AC-1
+    given: a cell whose dominantStressDial is drought
+    when: the gardener opens its RemedyDialog and clicks the apply action
+    then: waterCellAction is called with that cell's bedId/column/row, and on success the garden view refreshes and the dialog closes
+    invariant: false
+  - id: AC-2
+    given: a cell whose dominantStressDial is cold, wind, or transplantShock
+    when: the gardener opens its RemedyDialog
+    then: real-world steps render but no apply/action button does
+    invariant: true
+  - id: AC-3
+    given: a bed with multiple stressed cells sharing the same dominant dial
+    when: the Needs Attention banner is expanded
+    then: those cells render under one grouped heading with a cell count and a fixable-now/no-in-app-fix tag, instead of as a flat list with no cause shown
+    invariant: false
+  - id: AC-4
+    given: a cell whose dominantStressDial is pestDisease
+    when: the cell has an active disease infection versus when it has none
+    then: the dialog offers applyFungicideAction in the first case and no in-app action (steps pointing to the Pest panel) in the second
+    invariant: false
+  - id: AC-5
+    given: a cell whose dominantStressDial is overwater
+    when: the gardener clicks the dialog's action button
+    then: no server action is called — onOpenIrrigationSettings navigates to the Irrigation Settings tab instead
+    invariant: false
+depends_on:
+  - SPEC-SURFACE-001
+constitution_rules: []
