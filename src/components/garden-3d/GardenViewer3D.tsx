@@ -27,6 +27,7 @@ import { HEALTH_BAND_LABEL, STRESS_DIAL_LABEL, healthBand } from "@/components/g
 import { DISEASE_LABEL, bedPestPhrase, bedPredatorPhrase, diseaseSeverityBand } from "@/components/garden/pest-display";
 import type { GardenEnvironment, PlantOption, SelectedCell, SnapshotBed, SnapshotRainBarrel } from "@/components/garden/types";
 import { useWebGlSupport } from "@/components/viewer/use-webgl-support";
+import { FOCUS_RING, MIN_TOUCH_TARGET } from "@/components/garden/ui-constants";
 import {
   buildCellRenderStates,
   buildEquipmentRenderStates,
@@ -88,6 +89,38 @@ function getPageVisibleSnapshot(): boolean {
 
 function usePageVisible(): boolean {
   return useSyncExternalStore(subscribePageVisible, getPageVisibleSnapshot, () => true);
+}
+
+// The user's own choice of whether rain/snow or an active pest/predator
+// swarm gets animated every frame ("always") or left as a still frame that
+// only updates on interaction ("demand" — see the frameloop computation
+// below). Persisted so the choice sticks across visits instead of asking
+// every time the same conditions recur; a per-viewer preference, not garden
+// state, so localStorage (not the server) is the right home for it.
+type AnimationPreference = "always" | "demand";
+const ANIMATION_PREFERENCE_STORAGE_KEY = "sprig:garden3d-animation-preference";
+
+function readStoredAnimationPreference(): AnimationPreference | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(ANIMATION_PREFERENCE_STORAGE_KEY);
+    return raw === "always" || raw === "demand" ? raw : null;
+  } catch {
+    // Private browsing / storage disabled — fall back to asking every time
+    // rather than throwing.
+    return null;
+  }
+}
+
+function writeStoredAnimationPreference(value: AnimationPreference): void {
+  try {
+    window.localStorage.setItem(ANIMATION_PREFERENCE_STORAGE_KEY, value);
+  } catch {
+    // Worst case the choice isn't remembered next visit — not worth
+    // surfacing an error for.
+  }
 }
 
 const INITIAL_CAMERA = orbitCameraPosition(
@@ -178,16 +211,37 @@ export function GardenViewer3D({ beds, environment, rainBarrels, plants, selecte
     [environment.weather],
   );
   // <Sparkles> animates via useFrame, which never runs under
-  // frameloop="demand" — without switching to "always" while rain/snow (or
-  // a pest/predator swarm, PestSwarm.tsx's own <Sparkles>) is active,
-  // particles would render as a single frozen point cloud instead of
-  // falling/hovering. Reverts to "demand" (this canvas's normal, cheaper
-  // mode) the moment there's nothing to animate, motion is reduced, OR the
-  // tab isn't visible — a backgrounded tab with active rain/pests has no
-  // reason to keep rendering every frame at full, uncapped rate (the
-  // reported cause of sustained high CPU/GPU usage while the page sits open
-  // in the background).
-  const frameloop = (weatherVisual || hasActiveSwarm) && !reducedMotion && pageVisible ? "always" : "demand";
+  // frameloop="demand" — rendering every frame ("always") is what makes
+  // rain/snow (or a pest/predator swarm, PestSwarm.tsx's own <Sparkles>)
+  // actually fall/hover instead of sitting as a single frozen point cloud.
+  // It's also the reported cause of sustained high CPU/GPU usage (fan spin)
+  // while the tab sits open — continuous rendering of a GLB-model scene is
+  // not cheap. Reduced motion and a backgrounded tab already override this
+  // unconditionally below; whether to pay that cost at all when eligible is
+  // the visitor's call, asked once via animationPromptOpen and remembered in
+  // animationPreference rather than decided for them.
+  const eligibleForContinuousAnimation = Boolean(weatherVisual || hasActiveSwarm) && !reducedMotion && pageVisible;
+  const [animationPreference, setAnimationPreference] = useState<AnimationPreference | null>(() =>
+    readStoredAnimationPreference(),
+  );
+  const [animationPromptOpen, setAnimationPromptOpen] = useState(false);
+
+  useEffect(() => {
+    if (eligibleForContinuousAnimation && animationPreference === null) {
+      setAnimationPromptOpen(true);
+    }
+  }, [eligibleForContinuousAnimation, animationPreference]);
+
+  function chooseAnimationPreference(choice: AnimationPreference): void {
+    setAnimationPreference(choice);
+    writeStoredAnimationPreference(choice);
+    setAnimationPromptOpen(false);
+  }
+
+  // Defaults to the cheap "demand" mode whenever the visitor hasn't made a
+  // choice yet (or made none — e.g. dismissed the prompt) — never assume
+  // "always" while undecided.
+  const frameloop = eligibleForContinuousAnimation && animationPreference === "always" ? "always" : "demand";
 
   function handleCellClick(nodeName: string): void {
     if (disabled) {
@@ -323,7 +377,76 @@ export function GardenViewer3D({ beds, environment, rainBarrels, plants, selecte
           <p>Click a cell in the 3D view to select it — the picker above will open.</p>
         )}
       </div>
+      <button
+        type="button"
+        onClick={() => setAnimationPromptOpen(true)}
+        className={`self-start text-xs underline underline-offset-2 ${FOCUS_RING}`}
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        3D animation:{" "}
+        {animationPreference === "always"
+          ? "always on (higher CPU/GPU)"
+          : animationPreference === "demand"
+            ? "power saver (lower CPU/GPU)"
+            : "ask when rain, snow, or a swarm is active"}{" "}
+        — change
+      </button>
       <Viewer3DLegend />
+      {animationPromptOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="presentation"
+          onClick={() => setAnimationPromptOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="animation-pref-heading"
+            className="w-full max-w-md rounded-xl border bg-[var(--color-surface-raised)] p-5 shadow-xl"
+            style={{ borderColor: "var(--color-border)" }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="animation-pref-heading" className="text-base font-semibold" style={{ color: "var(--color-text)" }}>
+              Keep the 3D garden animating?
+            </h2>
+            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {weatherVisual && hasActiveSwarm
+                ? "Rain or snow and an active pest/predator swarm are"
+                : weatherVisual
+                  ? "Rain or snow is"
+                  : "An active pest or predator swarm is"}{" "}
+              happening in your garden, and can be animated in the 3D view.
+            </p>
+            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              Animating it keeps the motion smooth, but renders every frame continuously — that uses noticeably
+              more CPU/GPU and can spin up your fan, especially if you leave the tab open. Turning it off keeps
+              the scene efficient: it only redraws when you interact with it (click, drag, resize), and rain,
+              snow, or swarms show as a still frame instead of moving.
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => chooseAnimationPreference("always")}
+                className={`${MIN_TOUCH_TARGET} ${FOCUS_RING} rounded-md px-3 text-left text-sm font-semibold text-white`}
+                style={{ background: "var(--color-accent-strong)" }}
+              >
+                Always animate — smoother, higher CPU/GPU usage
+              </button>
+              <button
+                type="button"
+                onClick={() => chooseAnimationPreference("demand")}
+                className={`${MIN_TOUCH_TARGET} ${FOCUS_RING} rounded-md border px-3 text-left text-sm font-medium`}
+                style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+              >
+                Save power — efficient, no continuous animation
+              </button>
+            </div>
+            <p className="mt-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
+              You can change this anytime from the link under the 3D view.
+            </p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

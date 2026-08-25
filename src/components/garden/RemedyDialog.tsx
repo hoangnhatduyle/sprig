@@ -39,7 +39,30 @@ export interface RemedyDialogProps {
   onOpenIrrigationSettings: () => void;
 }
 
-async function runAction(action: Exclude<RemedyAction, { kind: "open-irrigation" }>, target: RemedyDialogTarget) {
+type FertilizerKind = "SYNTHETIC" | "ORGANIC";
+
+// Shown alongside the fertilize action so the choice of immediate-vs-slow
+// is explicit rather than silently hardcoded (see care-actions-service.ts:
+// SYNTHETIC hits the N/P/K pools directly and clears nutrient stress on the
+// next refresh; ORGANIC joins the slow-release residue pool and only
+// becomes available over subsequent simulated days via decomposition).
+const FERTILIZER_KIND_COPY: Record<FertilizerKind, { label: string; description: string }> = {
+  SYNTHETIC: {
+    label: "Synthetic — fixes it now",
+    description: "Feeds the plant immediately. Leaches out fast if it rains soon after applying.",
+  },
+  ORGANIC: {
+    label: "Organic — slow release",
+    description:
+      "Gentler on the soil, but breaks down over several simulated days before the plant can use it — this cell will likely still show as stressed right after applying.",
+  },
+};
+
+async function runAction(
+  action: Exclude<RemedyAction, { kind: "open-irrigation" }>,
+  target: RemedyDialogTarget,
+  fertilizerKind: FertilizerKind,
+) {
   const { bedId, column, row } = target;
   switch (action.kind) {
     case "water":
@@ -49,17 +72,16 @@ async function runAction(action: Exclude<RemedyAction, { kind: "open-irrigation"
     case "grow-light":
       return installConditionOverrideAction({ bedId, kind: "GROW_LIGHT", intensity: REMEDY_CONDITION_INTENSITY });
     case "fertilize":
-      return applyFertilizerAction({ bedId, column, row, kind: "ORGANIC", ...REMEDY_FERTILIZER_NPK });
+      return applyFertilizerAction({ bedId, column, row, kind: fertilizerKind, ...REMEDY_FERTILIZER_NPK });
     case "fungicide":
       return applyFungicideAction({ bedId, column, row });
   }
 }
 
-const ACTION_BUTTON_LABEL: Record<RemedyAction["kind"], string> = {
+const ACTION_BUTTON_LABEL: Record<Exclude<RemedyAction["kind"], "fertilize">, string> = {
   water: "Water this cell now",
   "shade-cloth": "Install shade cloth",
   "grow-light": "Install a grow light",
-  fertilize: "Apply fertilizer",
   fungicide: "Apply fungicide",
   "open-irrigation": "Open Irrigation Settings",
 };
@@ -67,6 +89,7 @@ const ACTION_BUTTON_LABEL: Record<RemedyAction["kind"], string> = {
 export function RemedyDialog({ target, onClose, onApplied, onOpenIrrigationSettings }: RemedyDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fertilizerKind, setFertilizerKind] = useState<FertilizerKind>("SYNTHETIC");
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,7 +117,7 @@ export function RemedyDialog({ target, onClose, onApplied, onOpenIrrigationSetti
     setIsSubmitting(true);
     setError(null);
     try {
-      const result = await runAction(action, target);
+      const result = await runAction(action, target, fertilizerKind);
       if (!result.ok) {
         setError(result.error ?? "Couldn't apply that fix.");
         return;
@@ -141,6 +164,39 @@ export function RemedyDialog({ target, onClose, onApplied, onOpenIrrigationSetti
             No in-app fix for this — follow the steps above in the real garden.
           </p>
         )}
+        {remedy.action?.kind === "fertilize" && (
+          <fieldset className="mt-4 flex flex-col gap-2">
+            <legend className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--color-clay-strong)" }}>
+              Fertilizer type
+            </legend>
+            {(Object.keys(FERTILIZER_KIND_COPY) as FertilizerKind[]).map((kind) => (
+              <label
+                key={kind}
+                className="flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm"
+                style={{
+                  borderColor: fertilizerKind === kind ? "var(--color-accent-strong)" : "var(--color-border)",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="fertilizer-kind"
+                  value={kind}
+                  checked={fertilizerKind === kind}
+                  onChange={() => setFertilizerKind(kind)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-medium" style={{ color: "var(--color-text)" }}>
+                    {FERTILIZER_KIND_COPY[kind].label}
+                  </span>
+                  <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    {FERTILIZER_KIND_COPY[kind].description}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
         {error && (
           <p role="alert" className="mt-3 text-sm" style={{ color: "var(--color-danger-text)" }}>
             {error}
@@ -163,7 +219,11 @@ export function RemedyDialog({ target, onClose, onApplied, onOpenIrrigationSetti
               className={`${MIN_TOUCH_TARGET} ${FOCUS_RING} rounded-md px-3 text-sm font-semibold text-white disabled:opacity-60`}
               style={{ background: "var(--color-accent-strong)" }}
             >
-              {isSubmitting ? "Applying…" : ACTION_BUTTON_LABEL[remedy.action.kind]}
+              {isSubmitting
+                ? "Applying…"
+                : remedy.action.kind === "fertilize"
+                  ? `Apply ${fertilizerKind === "SYNTHETIC" ? "synthetic" : "organic"} fertilizer`
+                  : ACTION_BUTTON_LABEL[remedy.action.kind]}
             </button>
           )}
         </div>
