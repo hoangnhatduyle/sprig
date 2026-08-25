@@ -143,3 +143,19 @@ export function bedPredatorPhrase(predators: readonly { predatorKey: string; pop
   }
   return active.map((predator) => `${PREDATOR_LABEL[predator.predatorKey] ?? predator.predatorKey} active`).join(", ");
 }
+
+const PREDATOR_PREY_PEST_KEYS: Record<string, readonly string[]> = Object.fromEntries(
+  PREDATOR_DEFINITIONS.map((predator) => [predator.key, predator.preyPestKeys]),
+);
+
+// What a predator is actually doing on the bed (predator-catalog.ts's
+// preyPestKeys) — pairs with bedPredatorPhrase's "active" note so a
+// "Ladybug active" badge can say *why* that's good news (hunting aphids)
+// instead of leaving the visitor to guess.
+export function predatorPreyPhrase(predatorKey: string): string | null {
+  const preyKeys = PREDATOR_PREY_PEST_KEYS[predatorKey];
+  if (!preyKeys || preyKeys.length === 0) {
+    return null;
+  }
+  return preyKeys.map((key) => PEST_LABEL[key] ?? key).join(", ");
+}

@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
+import { ChevronDown } from "lucide-react";
 import Image from "next/image";
+import { type AttentionCell, summarizeBed } from "./bed-summary";
 import { EQUIPMENT_KIND_ICON, EQUIPMENT_KIND_LABEL } from "./equipment-display";
 import { plantName } from "./plant-lookup";
 import { STATUS_STYLES } from "./status-display";
-import { HEALTH_BAND_CSS, cellHealthPhrase, healthBand } from "./stress-display";
+import { HEALTH_BAND_CSS, STRESS_DIAL_LABEL, cellHealthPhrase, healthBand } from "./stress-display";
 import {
   DISEASE_SEVERITY_CSS,
   MIN_DISPLAY_POPULATION,
@@ -17,11 +19,13 @@ import {
   PREDATOR_LABEL,
   cellInfectionPhrase,
   diseaseSeverityBand,
+  predatorPreyPhrase,
 } from "./pest-display";
 import { COMPANION_EFFECT_ICON, cellCompanionEffectPhrase } from "./companion-effect-display";
 import { moistureHeatmapColor } from "./soil-display";
 import { LEGEND_SECTIONS } from "./legend-sections";
 import { LegendPanel } from "./LegendPanel";
+import { FOCUS_RING } from "./ui-constants";
 import type { PlantOption, SelectedCell, SnapshotBed, SnapshotCell } from "./types";
 
 type GardenGridProps = {
@@ -194,6 +198,65 @@ function DroppableCell({
   );
 }
 
+// Beyond this many cells, the pill list wraps into clutter — same collapse
+// convention GardenSummary.tsx's PlantVarietyList uses for plant varieties.
+const COLLAPSED_PEST_PRESSURE_CELL_COUNT = 4;
+
+// Predator/pest populations are simulated per bed, not per cell (Prisma's
+// PredatorPopulation/PestPopulation are keyed on bedId alone) — a released
+// ladybug isn't "in" any particular cell, it's active across the whole bed.
+// This is the closest honest answer to "which cells": the cells where that
+// bed-wide pest/disease pressure currently happens to be each cell's worst
+// problem (dominantStressDial === "pestDisease"), sourced from the same
+// per-cell computation NeedsAttentionBanner already uses.
+function PestPressureCellList({
+  bed,
+  cells,
+  disabled,
+  onCellClick,
+}: {
+  bed: SnapshotBed;
+  cells: AttentionCell[];
+  disabled: boolean;
+  onCellClick: (bed: SnapshotBed, cell: SnapshotCell, event: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hiddenCount = cells.length - COLLAPSED_PEST_PRESSURE_CELL_COUNT;
+  const visible = expanded || hiddenCount <= 0 ? cells : cells.slice(0, COLLAPSED_PEST_PRESSURE_CELL_COUNT);
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+      {visible.map((attention) => (
+        <button
+          key={`${attention.cell.column}:${attention.cell.row}`}
+          type="button"
+          disabled={disabled}
+          onClick={(event) => onCellClick(bed, attention.cell, event)}
+          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
+          style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+        >
+          Col {attention.cell.column}, row {attention.cell.row}
+        </button>
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          className={`inline-flex items-center gap-0.5 rounded text-[10px] font-medium underline decoration-dotted underline-offset-2 ${FOCUS_RING}`}
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          {expanded ? "Show fewer" : `+${hiddenCount} more`}
+          <ChevronDown
+            aria-hidden="true"
+            className="h-2.5 w-2.5 shrink-0 transition-transform"
+            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
+          />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function GardenGrid({
   beds,
   plants,
@@ -226,6 +289,15 @@ export function GardenGrid({
       >
         {beds.map((bed) => {
           const plantedCells = bed.cells.filter((cell) => cell.plantIds.length > 0).length;
+          const activePredators = bed.predators.filter((predator) => predator.population >= MIN_DISPLAY_POPULATION);
+          // Cells where pest/disease pressure — the thing a predator is
+          // actually working against — happens to be each cell's single
+          // worst stressor right now. Not "cells the predator is in" (see
+          // PestPressureCellList's comment above): the population itself
+          // has no cell-level location.
+          const pestPressureCells = activePredators.length > 0
+            ? summarizeBed(bed).attentionCells.filter((attention) => attention.dominantStressDial === "pestDisease")
+            : [];
 
           return (
             <section
@@ -301,6 +373,43 @@ export function GardenGrid({
                           );
                         })}
                     </ul>
+                  )}
+                  {activePredators.length > 0 && (
+                    // Predator presence is good news, not something to fix
+                    // (see pest-display.ts's bedPredatorPhrase comment) —
+                    // explanatory copy, not a warning, and no action button.
+                    <div
+                      className="mt-1.5 rounded-md border px-2 py-1.5 text-[11px] leading-snug"
+                      style={{ borderColor: "var(--color-accent)", color: "var(--color-text-muted)" }}
+                    >
+                      <p>
+                        <span className="font-semibold" style={{ color: "var(--color-accent-strong)" }}>
+                          Beneficial — no fix needed.
+                        </span>{" "}
+                        {activePredators
+                          .map((predator) => {
+                            const label = PREDATOR_LABEL[predator.predatorKey] ?? predator.predatorKey;
+                            const prey = predatorPreyPhrase(predator.predatorKey);
+                            return prey ? `${label} is hunting ${prey}` : label;
+                          })
+                          .join("; ")}{" "}
+                        across the whole bed — predator and pest populations are simulated per bed, not per
+                        individual cell, so there&rsquo;s no specific cell they&rsquo;re &ldquo;in.&rdquo;
+                      </p>
+                      {pestPressureCells.length > 0 && (
+                        <>
+                          <p className="mt-1.5">
+                            Cells currently feeling the most {STRESS_DIAL_LABEL.pestDisease} right now:
+                          </p>
+                          <PestPressureCellList
+                            bed={bed}
+                            cells={pestPressureCells}
+                            disabled={disabled}
+                            onCellClick={onCellClick}
+                          />
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
