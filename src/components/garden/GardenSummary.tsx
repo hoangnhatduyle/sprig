@@ -2,22 +2,29 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { summarizeBed } from "./bed-summary";
+import { type AttentionCell, summarizeBed } from "./bed-summary";
 import { EQUIPMENT_KIND_ICON, EQUIPMENT_KIND_LABEL } from "./equipment-display";
 import { plantName } from "./plant-lookup";
 import { STATUS_STYLES, STATUS_WORD } from "./status-display";
+import { STRESS_DIAL_LABEL } from "./stress-display";
 import {
+  MIN_DISPLAY_POPULATION,
   PEST_LABEL,
   PREDATOR_ICON,
   PREDATOR_LABEL,
   pestPressureBand,
+  predatorPreyPhrase,
 } from "./pest-display";
 import { FOCUS_RING } from "./ui-constants";
-import type { PlantOption, SnapshotBed, SnapshotCell } from "./types";
+import type { PlantOption, SelectedCell, SnapshotBed, SnapshotCell } from "./types";
 
 type GardenSummaryProps = {
   beds: SnapshotBed[];
   plants: PlantOption[];
+  // Optional so existing callers (and tests) that render GardenSummary
+  // read-only don't need to wire up a no-op — the pest-pressure cell list
+  // below simply isn't clickable without it.
+  onSelectCell?: (target: SelectedCell) => void;
 };
 
 // Beyond this many varieties, the tag list wraps into unreadable clutter —
@@ -65,7 +72,88 @@ function PlantVarietyList({ plantCounts, plants }: { plantCounts: { plantId: str
   );
 }
 
-function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption[] }) {
+// Beyond this many cells, the pill list wraps into clutter — same collapse
+// convention as PlantVarietyList above.
+const COLLAPSED_PEST_PRESSURE_CELL_COUNT = 4;
+
+// Predator/pest populations are simulated per bed, not per cell (Prisma's
+// PredatorPopulation/PestPopulation are keyed on bedId alone) — a released
+// ladybug isn't "in" any particular cell, it's active across the whole bed.
+// This is the closest honest answer to "which cells": the cells where that
+// bed-wide pest/disease pressure currently happens to be each cell's worst
+// problem (dominantStressDial === "pestDisease"), sourced from the same
+// per-cell computation NeedsAttentionBanner already uses.
+function PestPressureCellList({
+  bedName,
+  bedId,
+  soilProfile,
+  cells,
+  onSelectCell,
+}: {
+  bedName: string;
+  bedId: string;
+  soilProfile: SnapshotBed["soilProfile"];
+  cells: AttentionCell[];
+  onSelectCell?: (target: SelectedCell) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hiddenCount = cells.length - COLLAPSED_PEST_PRESSURE_CELL_COUNT;
+  const visible = expanded || hiddenCount <= 0 ? cells : cells.slice(0, COLLAPSED_PEST_PRESSURE_CELL_COUNT);
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+      {visible.map((attention) => (
+        <button
+          key={`${attention.cell.column}:${attention.cell.row}`}
+          type="button"
+          disabled={!onSelectCell}
+          onClick={() =>
+            onSelectCell?.({
+              bedId,
+              bedName,
+              column: attention.cell.column,
+              row: attention.cell.row,
+              status: attention.cell.status,
+              plantIds: attention.cell.plantIds,
+              plantings: attention.cell.plantings,
+              environment: attention.cell.environment,
+              soilProfile,
+            })
+          }
+          className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline ${FOCUS_RING}`}
+          style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+        >
+          Col {attention.cell.column}, row {attention.cell.row}
+        </button>
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          className={`inline-flex items-center gap-0.5 rounded text-[10px] font-medium underline decoration-dotted underline-offset-2 ${FOCUS_RING}`}
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          {expanded ? "Show fewer" : `+${hiddenCount} more`}
+          <ChevronDown
+            aria-hidden="true"
+            className="h-2.5 w-2.5 shrink-0 transition-transform"
+            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
+          />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BedSummaryCard({
+  bed,
+  plants,
+  onSelectCell,
+}: {
+  bed: SnapshotBed;
+  plants: PlantOption[];
+  onSelectCell?: (target: SelectedCell) => void;
+}) {
   const {
     filledCells,
     statusCounts,
@@ -73,6 +161,7 @@ function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption
     stressedCells,
     criticalCells,
     infectedCells,
+    attentionCells,
     dominantPestKey,
     dominantPredatorKey,
   } = summarizeBed(bed);
@@ -81,6 +170,8 @@ function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption
   const statusEntries = (Object.keys(statusCounts) as SnapshotCell["status"][])
     .filter((status) => status !== "EMPTY")
     .sort((a, b) => (statusCounts[b] ?? 0) - (statusCounts[a] ?? 0));
+  const activePredators = bed.predators.filter((predator) => predator.population >= MIN_DISPLAY_POPULATION);
+  const pestPressureCells = attentionCells.filter((attention) => attention.dominantStressDial === "pestDisease");
 
   return (
     <div className="flex flex-col gap-2.5 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
@@ -158,6 +249,43 @@ function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption
         </p>
       )}
 
+      {activePredators.length > 0 && (
+        // Explanatory copy, not a warning — no action button, since a
+        // predator population isn't a problem to fix (see
+        // pest-display.ts's bedPredatorPhrase comment).
+        <div
+          className="rounded-md border px-2 py-1.5 text-[11px] leading-snug"
+          style={{ borderColor: "var(--color-accent)", color: "var(--color-text-muted)" }}
+        >
+          <p>
+            <span className="font-semibold" style={{ color: "var(--color-accent-strong)" }}>
+              Beneficial — no fix needed.
+            </span>{" "}
+            {activePredators
+              .map((predator) => {
+                const label = PREDATOR_LABEL[predator.predatorKey] ?? predator.predatorKey;
+                const prey = predatorPreyPhrase(predator.predatorKey);
+                return prey ? `${label} is hunting ${prey}` : label;
+              })
+              .join("; ")}{" "}
+            across the whole bed — predator and pest populations are simulated per bed, not per individual
+            cell, so there&rsquo;s no specific cell they&rsquo;re &ldquo;in.&rdquo;
+          </p>
+          {pestPressureCells.length > 0 && (
+            <>
+              <p className="mt-1.5">Cells currently feeling the most {STRESS_DIAL_LABEL.pestDisease} right now:</p>
+              <PestPressureCellList
+                bedId={bed.id}
+                bedName={bed.name}
+                soilProfile={bed.soilProfile}
+                cells={pestPressureCells}
+                onSelectCell={onSelectCell}
+              />
+            </>
+          )}
+        </div>
+      )}
+
       {statusEntries.length > 0 ? (
         <ul className="flex flex-col gap-1">
           {statusEntries.map((status) => (
@@ -182,7 +310,7 @@ function BedSummaryCard({ bed, plants }: { bed: SnapshotBed; plants: PlantOption
 // Fills the CellPicker's slot when nothing is selected, rather than leaving
 // that space blank — an at-a-glance answer to "what's planted where" across
 // both beds.
-export function GardenSummary({ beds, plants }: GardenSummaryProps) {
+export function GardenSummary({ beds, plants, onSelectCell }: GardenSummaryProps) {
   const bedStats = beds.map((bed) => summarizeBed(bed));
   const totalCells = beds.reduce((sum, bed) => sum + bed.cells.length, 0);
   const totalFilled = bedStats.reduce((sum, stats) => sum + stats.filledCells, 0);
@@ -239,7 +367,7 @@ export function GardenSummary({ beds, plants }: GardenSummaryProps) {
 
       <div className="grid gap-3 border-t pt-4 sm:grid-cols-2" style={{ borderColor: "var(--color-border)" }}>
         {beds.map((bed) => (
-          <BedSummaryCard key={bed.id} bed={bed} plants={plants} />
+          <BedSummaryCard key={bed.id} bed={bed} plants={plants} onSelectCell={onSelectCell} />
         ))}
       </div>
     </aside>

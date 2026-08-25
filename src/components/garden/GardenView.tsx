@@ -653,7 +653,7 @@ export function GardenView({
         {/* Outside both tabs per user request — an ambient overview
             shouldn't disappear just because you switched to Rain Barrels,
             the same way NeedsAttentionBanner is never tab-scoped either. */}
-        <GardenSummary beds={beds} plants={plants} />
+        <GardenSummary beds={beds} plants={plants} onSelectCell={selectCell} />
       </div>
       <div className="min-w-0 xl:sticky xl:top-8">
         <GardenViewer3D
